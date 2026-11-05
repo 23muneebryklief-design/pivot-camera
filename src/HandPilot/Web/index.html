@@ -1,26 +1,57 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HandPilot camera</title>
-<style>body{margin:0;background:#192235;color:#edf3ff;font:16px system-ui}main{padding:20px}button{background:#70e0c4;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}#stage{position:relative;margin-top:16px;max-width:800px}video{width:100%;display:block;transform:scaleX(-1);border-radius:12px}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}p{color:#b5c4df}</style>
-<main><button id="start">Start camera preview</button><p id="message">Camera starts only when you press the button. Internet is needed to load the tracker.</p><div id="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas></div></main>
+<style>body{margin:0;background:#192235;color:#edf3ff;font:16px system-ui}main{padding:20px}select{max-width:100%;padding:10px;background:#101522;color:white;border:1px solid #71809b;border-radius:8px;margin:0 8px 8px 0}button{background:#70e0c4;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}#stage{position:relative;margin-top:16px;max-width:800px}video{width:100%;display:block;transform:scaleX(-1);border-radius:12px}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}p{color:#b5c4df}</style>
+<main><label for="camera">Camera</label> <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select><button id="refresh">Find cameras</button> <button id="start" disabled>Start camera preview</button><p id="message">Press Find cameras and allow camera access, then select your PC webcam. Camera access is briefly used to discover device names. Internet is needed to load the tracker.</p><div id="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas></div></main>
 <script type="module">
 const start=document.querySelector('#start'),video=document.querySelector('#video'),canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d'),message=document.querySelector('#message');
+const camera=document.querySelector('#camera'),refresh=document.querySelector('#refresh');
 const send=value=>window.chrome.webview.postMessage(value);
-let tracker,stream,running=false,lastTime=-1;
+let tracker,stream,running=false,lastTime=-1,animationId;
 function status(text){message.textContent=text;send({status:text});}
+async function listCameras(){
+ const previous=camera.value;
+ const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput' && d.deviceId);
+ camera.replaceChildren(new Option('Choose a camera',''));
+ devices.forEach((d,i)=>camera.add(new Option(d.label || `Camera ${i+1}`,d.deviceId)));
+ if(devices.some(d=>d.deviceId===previous)) camera.value=previous;
+ start.disabled=!camera.value || running;
+ return devices.length;
+}
+refresh.onclick=async()=>{
+ refresh.disabled=true;
+ let permissionStream;
+ try{
+  if(!stream) permissionStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+  const count=await listCameras();
+  status(count?'Select your PC webcam from the Camera list, then start preview.':'No cameras found. Connect a webcam and try again.');
+ }catch(e){status('Unable to list cameras: '+e.message);}
+ finally{permissionStream?.getTracks().forEach(t=>t.stop());refresh.disabled=false;}
+};
+camera.onchange=()=>{
+ stop(); start.disabled=!camera.value; start.textContent='Start camera preview';
+ status(camera.value?'Selected: '+camera.selectedOptions[0].text+'. Start preview when ready.':'Choose a camera.');
+};
+navigator.mediaDevices.addEventListener('devicechange',async()=>{
+ try{const active=camera.value;await listCameras();if(active && !camera.value){stop();status('Selected camera disconnected. Choose another camera.');}}
+ catch(e){status('Unable to refresh cameras: '+e.message);}
+});
+listCameras().catch(()=>{});
 start.onclick=async()=>{
- start.disabled=true;
+ if(!camera.value){status('Choose a camera first.');return;}
+ start.disabled=true;camera.disabled=true;refresh.disabled=true;
  try{
   status('Loading hand tracker…');
   const {HandLandmarker,FilesetResolver}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
   const files=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
   tracker=await HandLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.65});
-  stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480},audio:false});
-  video.srcObject=stream;await video.play();running=true;
-  status('Camera active. Point your index finger, or pinch thumb and index finger.');send({ready:true});
-  start.textContent='Camera active';requestAnimationFrame(frame);
- }catch(e){stop();status('Unable to start camera: '+e.message);start.disabled=false;}
+  stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:camera.value},width:{ideal:640},height:{ideal:480}},audio:false});
+  video.srcObject=stream;await video.play();lastTime=-1;running=true;
+  status('Camera active: '+stream.getVideoTracks()[0].label+'. Point your index finger, or pinch thumb and index finger.');send({ready:true});
+  start.textContent='Camera active';camera.disabled=false;refresh.disabled=false;animationId=requestAnimationFrame(frame);
+ }catch(e){stop();status('Unable to start camera: '+e.message);start.disabled=!camera.value;}
+ finally{camera.disabled=false;refresh.disabled=false;}
 };
-function stop(){running=false;stream?.getTracks().forEach(t=>t.stop());tracker?.close();tracker=null;send({points:[]});}
+function stop(){running=false;cancelAnimationFrame(animationId);stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;tracker?.close();tracker=null;ctx.clearRect(0,0,canvas.width,canvas.height);send({ready:false});send({points:[]});}
 function frame(){
  if(!running)return;
  try{
@@ -31,7 +62,7 @@ function frame(){
    for(const p of points){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,5,0,Math.PI*2);ctx.fill();}
    send({points:points.map(({x,y})=>({x,y}))});
   }
-  requestAnimationFrame(frame);
+  animationId=requestAnimationFrame(frame);
  }catch(e){stop();status('Tracker stopped: '+e.message+' Reopen the app to retry.');}
 }
 window.addEventListener('pagehide',stop);

@@ -48,9 +48,9 @@ public partial class MainWindow : Window
             using var doc=JsonDocument.Parse(e.WebMessageAsJson);
             var root=doc.RootElement;
             if(root.TryGetProperty("status",out var status)) { Status.Text=status.GetString(); return; }
-            if(root.TryGetProperty("ready",out _)) { ControlButton.IsEnabled=true; Status.Text="Preview ready. Enable mouse control when comfortable."; return; }
+            if(root.TryGetProperty("ready",out var ready)) { Pause(); lastFrame=DateTime.MinValue; ControlButton.IsEnabled=ready.GetBoolean(); if(!ready.GetBoolean()) return; Status.Text="Preview ready. Enable mouse control when comfortable."; return; }
             if(!root.TryGetProperty("points",out var points)) return;
-            lastFrame=DateTime.UtcNow;
+            lastFrame=points.GetArrayLength()==21 ? DateTime.UtcNow : DateTime.MinValue;
             if(enabled) gestures.Process(points.EnumerateArray().Select(p=>new HandPoint(p.GetProperty("x").GetDouble(),p.GetProperty("y").GetDouble())).ToArray());
         }
         catch(Exception ex) { Pause(); Status.Text="Control paused: "+ex.Message; }

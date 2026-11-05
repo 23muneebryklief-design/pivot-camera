@@ -10,7 +10,7 @@ Requires Windows 10/11 x64, the .NET 8 SDK, Microsoft Edge WebView2 Runtime, a w
 dotnet run --project src/HandPilot
 ```
 
-1. Press **Start camera preview** and allow camera access.
+1. Press **Find cameras** and allow camera access. Select your built-in webcam from the **Camera** dropdown, then press **Start camera preview**. The selected device is requested explicitly, so a connected phone is not silently substituted. Switching cameras pauses mouse control; restart preview and enable control again.
 2. Show one hand in good lighting. The preview draws dots on detected joints.
 3. Press **Enable mouse control**.
 4. Press **Ctrl + Alt + Space** at any time to pause. Closing the window stops the camera.
@@ -46,7 +46,7 @@ dotnet build src/HandPilot
 
 ## Prototype limits
 
-Hand tracking accuracy depends on lighting and camera position. Gestures need tuning through real webcam trials. Input cannot control Windows secure desktop/UAC prompts or applications at a higher integrity level. No right-click, camera selector, calibration UI, or installer yet. Keep a physical mouse available while trying the prototype.
+Hand tracking accuracy depends on lighting and camera position. Gestures need tuning through real webcam trials. Input cannot control Windows secure desktop/UAC prompts or applications at a higher integrity level. No right-click, calibration UI, or installer yet. Keep a physical mouse available while trying the prototype.
 
 ## References
 
