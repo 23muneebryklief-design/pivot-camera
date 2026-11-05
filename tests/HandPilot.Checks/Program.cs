@@ -16,5 +16,15 @@ engine.Process(Hand());engine.Process(Hand(true));engine.Reset();Check(mouse.Ups
 var invalid=Hand();invalid[8]=new(double.NaN,0);engine.Process(invalid);Check(mouse.Downs==3,"Invalid frame must not click");
 engine.Start();Check(mouse.Last==new HandPoint(.5,.5),"Re-enable must centre");
 var scroll=Hand();scroll[16]=new(.5,.65);scroll[20]=new(.5,.65);engine.Process(scroll);scroll[8]=new(.5,0);scroll[12]=new(.5,0);engine.Process(scroll);Check(mouse.Wheel==120,"Two-finger scroll must work");
-Console.WriteLine("Passed: centred startup, palm movement, fist click and drag, open release, partial hand, hand loss, pause, scroll.");
+foreach(var offset in new[]{new HandPoint(-.17,0),new HandPoint(.17,0),new HandPoint(0,-.17),new HandPoint(0,.17)})
+{
+ var output=new FakeMouse();var range=new GestureEngine(output);range.Start();range.Process(Hand());
+ var edge=Hand();for(int i=0;i<21;i++)edge[i]=new(edge[i].X+offset.X,edge[i].Y+offset.Y);
+ for(int i=0;i<50;i++)range.Process(edge);
+ Check(offset.X<0 ? output.Last.X==1 : offset.X>0 ? output.Last.X==0 : offset.Y<0 ? output.Last.Y==0 : output.Last.Y==1,"All four edges must be reachable with small palm movements");
+}
+var lowMouse=new FakeMouse();var low=new GestureEngine(lowMouse){Sensitivity=1};low.Start();low.Process(Hand());
+var shifted=Hand();for(int i=0;i<21;i++)shifted[i]=new(shifted[i].X-.17,shifted[i].Y);
+for(int i=0;i<50;i++)low.Process(shifted);Check(lowMouse.Last.X<.8,"Lower sensitivity must allow finer movement");
+Console.WriteLine("Passed: centred startup, palm movement, fist click and drag, open release, partial hand, hand loss, pause, scroll, sensitivity, all four screen edges.");
 sealed class FakeMouse:IMouseOutput{public int Downs,Ups,Wheel;public HandPoint Last;public void Move(double x,double y){Last=new(x,y);if(x<0||x>1||y<0||y>1)throw new Exception("Out of bounds");}public void Down()=>Downs++;public void Up()=>Ups++;public void Scroll(int delta)=>Wheel+=delta;}

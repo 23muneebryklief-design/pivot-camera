@@ -10,6 +10,7 @@ public interface IMouseOutput
 }
 public sealed class GestureEngine(IMouseOutput mouse)
 {
+    public double Sensitivity { get; set; } = 2.5;
     private bool held;
     private bool armed;
     private HandPoint? smooth;
@@ -27,6 +28,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
         if (held) mouse.Up();
         held = false; armed = false; smooth = null; origin = null; scrollY = null; lastUpdate = 0;
     }
+    private static double SnapEdge(double value,double target) => (target == 0 || target == 1) && Math.Abs(value-target)<.001 ? target : value;
     public void Process(HandPoint[] p)
     {
         if (p.Length != 21 || p.Any(v => !double.IsFinite(v.X) || !double.IsFinite(v.Y))) { Reset(); return; }
@@ -50,7 +52,8 @@ public sealed class GestureEngine(IMouseOutput mouse)
         }
         scrollY = null;
         // Treat the first palm position as screen centre; mirror horizontal motion.
-        var target = new HandPoint(Math.Clamp(.5+(origin.Value.X-palm.X)/.76,0,1), Math.Clamp(.5+(palm.Y-origin.Value.Y)/.76,0,1));
+        double gain = double.IsFinite(Sensitivity) ? Math.Clamp(Sensitivity,1,5) : 2.5;
+        var target = new HandPoint(Math.Clamp(.5+(origin.Value.X-palm.X)*gain/.76,0,1), Math.Clamp(.5+(palm.Y-origin.Value.Y)*gain/.76,0,1));
         // Time-based smoothing keeps response similar at different camera frame rates.
         // Follow deliberate motion quickly while filtering small tracking jitter.
         var now = Stopwatch.GetTimestamp();
@@ -64,6 +67,8 @@ public sealed class GestureEngine(IMouseOutput mouse)
             smooth = new(old.X+(target.X-old.X)*alpha,old.Y+(target.Y-old.Y)*alpha);
         }
         else smooth = target;
+        // Settle exactly at screen edges rather than approaching them indefinitely.
+        smooth = new(SnapEdge(smooth.Value.X,target.X), SnapEdge(smooth.Value.Y,target.Y));
         mouse.Move(smooth.Value.X,smooth.Value.Y);
         if (nextHeld && !held) mouse.Down();
         if (!nextHeld && held) mouse.Up();

@@ -7,9 +7,14 @@
     <Button x:Name="ControlButton" Content="Enable mouse control" Click="ToggleControl" Padding="18,10" IsEnabled="False" />
     <TextBlock Text="  Ctrl + Alt + Space pauses immediately" VerticalAlignment="Center" Foreground="#A6B3CC" />
    </WrapPanel>
+   <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+    <TextBlock Text="Movement sensitivity" VerticalAlignment="Center" Margin="0,0,12,0" />
+    <Slider x:Name="SensitivitySlider" Minimum="1" Maximum="5" Value="2.5" TickFrequency="0.25" IsSnapToTickEnabled="True" Width="220" VerticalAlignment="Center" ValueChanged="SensitivityChanged" ToolTip="Higher values reach the screen edges with less hand movement." />
+    <TextBlock Text="{Binding ElementName=SensitivitySlider, Path=Value, StringFormat={}{0:0.00}x}" VerticalAlignment="Center" Margin="12,0,0,0" />
+   </StackPanel>
    <TextBlock x:Name="Status" Text="Loading tracker…" Margin="0,0,0,12" TextWrapping="Wrap" />
   </StackPanel>
-  <TextBlock DockPanel.Dock="Bottom" Text="Point to move • Pinch to click • Hold pinch to drag • Two fingers to scroll.&#10;Start in preview, then enable control. Closing the window stops the camera." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,12,0,0" />
+  <TextBlock DockPanel.Dock="Bottom" Text="Move palm to point / Close then open hand to click / Hold fist to drag / Two fingers to scroll.&#10;Centre your hand before enabling. Increase sensitivity to reach screen edges with less movement." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,12,0,0" />
   <wv:WebView2 x:Name="CameraView" />
  </DockPanel>
 </Window>
