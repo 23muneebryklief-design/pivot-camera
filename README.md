@@ -58,6 +58,8 @@ The pointer defaults to direct movement without extra smoothing. Enable **Smooth
 
 
 
+Enable **Double-click mode** to open files or desktop shortcuts with a single close-and-open gesture. The two clicks are sent together at the frozen pointer position when you open your hand, so you do not need to repeat the gesture quickly. Holding a fist and moving still drags; releasing after a drag does not double-click. Turn the mode off for ordinary single-click selection.
+
 ## Architecture
 
 

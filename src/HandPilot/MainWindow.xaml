@@ -9,6 +9,7 @@
    </WrapPanel>
    <TextBlock Text="Camera position maps directly to screen position." Foreground="#A6B3CC" Margin="0,0,0,12" />
    <CheckBox Content="Smooth pointer (adds a little delay)" Foreground="White" Margin="0,0,0,12" Checked="SmoothingChanged" Unchecked="SmoothingChanged" />
+   <CheckBox Content="Double-click mode (close and open hand to open files/apps)" Foreground="White" Margin="0,0,0,12" Checked="DoubleClickChanged" Unchecked="DoubleClickChanged" />
    <TextBlock x:Name="Status" Text="Loading tracker…" Margin="0,0,0,12" TextWrapping="Wrap" />
   </StackPanel>
   <TextBlock DockPanel.Dock="Bottom" Text="Move palm to point / Close then open hand to click / Hold fist to drag / Two fingers to scroll.&#10;Your palm position in the mirrored preview matches the pointer position on screen." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,12,0,0" />

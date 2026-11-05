@@ -7,9 +7,13 @@ public interface IMouseOutput
     void Down();
     void Up();
     void Scroll(int delta);
+    void DoubleClick();
 }
 public sealed class GestureEngine(IMouseOutput mouse)
 {
+    public bool DoubleClickEnabled { get; set; }
+    private bool buttonPressed;
+    private bool doubleClickForPress;
     public bool SmoothingEnabled { get; set; }
     private HandPoint? pressPalm;
     private bool dragging;
@@ -21,7 +25,8 @@ public sealed class GestureEngine(IMouseOutput mouse)
     private double? scrollY;
     public void Reset()
     {
-        if (held) mouse.Up();
+        if (buttonPressed) mouse.Up();
+        buttonPressed=false;
         held = false; armed = false; smooth = null; scrollY = null; lastUpdate = 0; pressPalm = null; dragging = false;
     }
     private static double SnapEdge(double value,double target) => (target == 0 || target == 1) && Math.Abs(value-target)<.001 ? target : value;
@@ -40,7 +45,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
         bool scrolling = !nextHeld && p[8].Y < p[6].Y && p[12].Y < p[10].Y && p[16].Y > p[14].Y;
         if (scrolling)
         {
-            if (held) { mouse.Up(); held = false; dragging=false; pressPalm=null; }
+            if (held) { if(buttonPressed) mouse.Up(); buttonPressed=false; held = false; dragging=false; pressPalm=null; }
             double y = (p[8].Y+p[12].Y)/2;
             if (scrollY is double previous && Math.Abs(y-previous) > .025)
             { mouse.Scroll(y < previous ? 120 : -120); scrollY = y; }
@@ -50,17 +55,22 @@ public sealed class GestureEngine(IMouseOutput mouse)
         // Keep the pointer on its target while fingers fold; require deliberate palm travel to drag.
         if (nextHeld && !held)
         {
-            mouse.Down(); held=true; dragging=false; pressPalm=palm;
+            doubleClickForPress=DoubleClickEnabled;
+            if(!doubleClickForPress) { mouse.Down(); buttonPressed=true; }
+            held=true; dragging=false; pressPalm=palm;
            
         }
         else if (!nextHeld && held)
         {
-            mouse.Up(); held=false; dragging=false; pressPalm=null;
+            if(buttonPressed) mouse.Up();
+            else if(doubleClickForPress && !dragging) mouse.DoubleClick();
+            buttonPressed=false; held=false; dragging=false; pressPalm=null;
             return;
         }
         if (held && !dragging && pressPalm is HandPoint pressed)
         {
             if (Math.Sqrt(Math.Pow(palm.X-pressed.X,2)+Math.Pow(palm.Y-pressed.Y,2)) < .03) return;
+            if(!buttonPressed) { mouse.Down(); buttonPressed=true; }
             dragging=true;
         }
         if (!held && folded>=2)

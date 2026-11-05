@@ -6,6 +6,21 @@ public sealed class WindowsMouse : IMouseOutput
     public void Move(double x,double y) => Send(0x0001|0x8000|0x4000,(int)(x*65535),(int)(y*65535));
     public void Down() => Send(0x0002);
     public void Up() => Send(0x0004);
+    public void DoubleClick()
+    {
+        INPUT[] clicks = [
+            new() { mouse=new MOUSEINPUT { dwFlags=0x0002 } },
+            new() { mouse=new MOUSEINPUT { dwFlags=0x0004 } },
+            new() { mouse=new MOUSEINPUT { dwFlags=0x0002 } },
+            new() { mouse=new MOUSEINPUT { dwFlags=0x0004 } }
+        ];
+        if(SendInput(4,clicks,Marshal.SizeOf<INPUT>())!=4)
+        {
+            int error=Marshal.GetLastWin32Error();
+            Up();
+            throw new Win32Exception(error,"Windows rejected double-click input.");
+        }
+    }
     public void Scroll(int delta) => Send(0x0800,data:unchecked((uint)delta));
     private static void Send(uint flags,int x=0,int y=0,uint data=0)
     {

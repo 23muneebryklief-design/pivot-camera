@@ -25,10 +25,22 @@ engine.Process(HandAt(.5,.5,true));Check(mouse.Downs==2,"Reacquiring closed fist
 engine.Process(HandAt(.5,.5));engine.Process(HandAt(.5,.5,true));engine.Reset();Check(mouse.Ups==3,"Pause must release drag");
 var invalid=HandAt(.5,.5);invalid[8]=new(double.NaN,0);engine.Process(invalid);Check(mouse.Downs==3,"Invalid data must not click");
 var scroll=HandAt(.5,.5);scroll[16]=new(.5,.39);scroll[20]=new(.5,.39);engine.Process(scroll);scroll[8]=new(.5,-.2);scroll[12]=new(.5,-.2);engine.Process(scroll);Check(mouse.Wheel==120,"Two-finger scrolling must work");
-Console.WriteLine("Passed: absolute mapping, mirrored coordinates, corners, reacquisition, fist click stability, absolute drag, release, hand loss, pause and scrolling.");
+var doubleMouse=new FakeMouse();var doubleEngine=new GestureEngine(doubleMouse){DoubleClickEnabled=true};
+doubleEngine.Start();doubleEngine.Process(HandAt(.5,.5));doubleEngine.Process(HandAt(.5,.5,true));
+Check(doubleMouse.Downs==0 && doubleMouse.DoubleClicks==0,"Double click must wait for release");
+doubleEngine.Process(HandAt(.5,.5,true));doubleEngine.Process(HandAt(.5,.5));
+Check(doubleMouse.DoubleClicks==1 && doubleMouse.Downs==0,"One fist cycle must produce one double-click");
+doubleEngine.Process(HandAt(.5,.5));Check(doubleMouse.DoubleClicks==1,"Open frames must not repeat double-click");
+doubleEngine.Process(HandAt(.5,.5,true));doubleEngine.Process(HandAt(.6,.5,true));
+Check(doubleMouse.Downs==1,"Double-click mode must still start deliberate drag");
+doubleEngine.Process(HandAt(.6,.5));Check(doubleMouse.Ups==1 && doubleMouse.DoubleClicks==1,"Drag release must not double-click");
+doubleEngine.Process(HandAt(.6,.5,true));doubleEngine.Process([]);Check(doubleMouse.DoubleClicks==1,"Tracking loss must cancel pending double-click");
+doubleEngine.Process(HandAt(.6,.5));doubleEngine.Process(HandAt(.6,.5,true));doubleEngine.Reset();Check(doubleMouse.DoubleClicks==1,"Pause must cancel pending double-click");
+Console.WriteLine("Passed: absolute mapping, mirrored coordinates, corners, reacquisition, fist click stability, absolute drag, release, hand loss, pause scrolling, double-click, drag in double-click mode and cancellation.");
 sealed class FakeMouse:IMouseOutput
 {
- public int Downs,Ups,Wheel,Moves;public HandPoint Last;
+ public int Downs,Ups,Wheel,Moves,DoubleClicks;public HandPoint Last;
  public void Move(double x,double y){Moves++;Last=new(x,y);if(x<0||x>1||y<0||y>1)throw new Exception("Out of bounds");}
+ public void DoubleClick()=>DoubleClicks++;
  public void Down()=>Downs++;public void Up()=>Ups++;public void Scroll(int delta)=>Wheel+=delta;
 }
