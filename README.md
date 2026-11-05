@@ -1,0 +1,56 @@
+# HandPilot
+
+A Windows desktop prototype for controlling your PC with webcam hand gestures.
+
+## Run
+
+Requires Windows 10/11 x64, the .NET 8 SDK, Microsoft Edge WebView2 Runtime, a webcam, and internet access to download the tracker assets.
+
+```powershell
+dotnet run --project src/HandPilot
+```
+
+1. Press **Start camera preview** and allow camera access.
+2. Show one hand in good lighting. The preview draws dots on detected joints.
+3. Press **Enable mouse control**.
+4. Press **Ctrl + Alt + Space** at any time to pause. Closing the window stops the camera.
+
+## Gestures
+
+| Gesture | Action |
+| --- | --- |
+| Move index fingertip | Move cursor across the Windows virtual desktop |
+| Pinch thumb and index | Left button down |
+| Release pinch | Left button up (a short pinch clicks) |
+| Move while pinched | Drag |
+| Index and middle fingers up, ring finger folded | Scroll by moving fingers vertically |
+
+The pointer is mirrored and smoothed. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
+
+## Architecture
+
+- C# / .NET 8 WPF desktop host and gesture state machine.
+- Windows SendInput for desktop mouse input.
+- WebView2 camera preview, with MediaPipe Hand Landmarker running in JavaScript/WASM locally.
+- MediaPipe 0.10.14 runtime loaded from jsDelivr; Google hosts the model. These services receive asset download requests, not camera frames from this application.
+- WebView profile is stored in `%LOCALAPPDATA%/HandPilot/WebView2`.
+
+This initial version uses a JavaScript tracking component; it is not an entirely C# inference implementation. Moving inference to C# / ONNX is a future option. The application does not record or upload camera frames. Initial setup and tracker loading require internet access.
+
+## Checks
+
+```powershell
+dotnet run --project tests/HandPilot.Checks
+dotnet build src/HandPilot
+```
+
+## Prototype limits
+
+Hand tracking accuracy depends on lighting and camera position. Gestures need tuning through real webcam trials. Input cannot control Windows secure desktop/UAC prompts or applications at a higher integrity level. No right-click, camera selector, calibration UI, or installer yet. Keep a physical mouse available while trying the prototype.
+
+## References
+
+- [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js)
+- [Microsoft WebView2](https://learn.microsoft.com/microsoft-edge/webview2/)
+
+No license has been selected yet.
