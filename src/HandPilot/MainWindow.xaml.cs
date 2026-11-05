@@ -35,6 +35,7 @@ public partial class MainWindow : Window
             core.NewWindowRequested += (_,args) => args.Handled=true;
             core.PermissionRequested += (_,args) => { if(args.PermissionKind!=CoreWebView2PermissionKind.Camera || !args.Uri.StartsWith("https://handpilot.example/",StringComparison.Ordinal)) args.State=CoreWebView2PermissionState.Deny; };
             core.WebMessageReceived += Receive;
+            core.NavigationCompleted += (_,_) => UpdateCameraZone();
             core.Navigate("https://handpilot.example/index.html");
             watchdog.Start();
         }
@@ -54,6 +55,16 @@ public partial class MainWindow : Window
             if(enabled) gestures.Process(points.EnumerateArray().Select(p=>new HandPoint(p.GetProperty("x").GetDouble(),p.GetProperty("y").GetDouble())).ToArray());
         }
         catch(Exception ex) { Pause(); Status.Text="Control paused: "+ex.Message; }
+    }
+    private void UpdateCameraZone()
+    {
+        CameraView?.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new { cameraMargin=gestures.CameraMargin }));
+    }
+    private void MarginChanged(object sender,RoutedPropertyChangedEventArgs<double> e)
+    {
+        gestures.CameraMargin=e.NewValue/100;
+        if(enabled) Pause();
+        UpdateCameraZone();
     }
     private void DoubleClickChanged(object sender,RoutedEventArgs e) => gestures.DoubleClickEnabled=((System.Windows.Controls.CheckBox)sender).IsChecked==true;
     private void SmoothingChanged(object sender,RoutedEventArgs e) => gestures.SmoothingEnabled=((System.Windows.Controls.CheckBox)sender).IsChecked==true;

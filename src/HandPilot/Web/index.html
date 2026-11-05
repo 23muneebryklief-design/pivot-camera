@@ -1,11 +1,16 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HandPilot camera</title>
-<style>body{margin:0;background:#192235;color:#edf3ff;font:16px system-ui}main{padding:20px}select{max-width:100%;padding:10px;background:#101522;color:white;border:1px solid #71809b;border-radius:8px;margin:0 8px 8px 0}button{background:#70e0c4;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}#stage{position:relative;margin-top:16px;max-width:800px}video{width:100%;display:block;transform:scaleX(-1);border-radius:12px}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}p{color:#b5c4df}</style>
-<main><label for="camera">Camera</label> <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select><button id="refresh">Find cameras</button> <button id="start" disabled>Start camera preview</button><p id="message">Press Find cameras and allow camera access, then select your PC webcam. Camera access is briefly used to discover device names. Internet is needed to load the tracker.</p><p id="performance" aria-live="off">Tracking speed will appear here.</p><div id="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas></div></main>
+<style>body{margin:0;background:#192235;color:#edf3ff;font:16px system-ui}main{padding:20px}select{max-width:100%;padding:10px;background:#101522;color:white;border:1px solid #71809b;border-radius:8px;margin:0 8px 8px 0}button{background:#70e0c4;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}#stage{position:relative;margin-top:16px;max-width:800px}video{width:100%;display:block;transform:scaleX(-1);border-radius:12px}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}p{color:#b5c4df}#zone{position:absolute;left:25%;top:25%;width:50%;height:50%;border:2px dashed #70e0c4;box-sizing:border-box;pointer-events:none}#zone span{background:#101522cc;color:#70e0c4;font-size:12px;padding:3px;position:absolute;top:0;left:0}</style>
+<main><label for="camera">Camera</label> <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select><button id="refresh">Find cameras</button> <button id="start" disabled>Start camera preview</button><p id="message">Press Find cameras and allow camera access, then select your PC webcam. Camera access is briefly used to discover device names. Internet is needed to load the tracker.</p><p id="performance" aria-live="off">Tracking speed will appear here.</p><div id="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas><div id="zone"><span>Screen area</span></div></div></main>
 <script type="module">
 const start=document.querySelector('#start'),video=document.querySelector('#video'),canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d'),message=document.querySelector('#message');
 const camera=document.querySelector('#camera'),refresh=document.querySelector('#refresh');
 const send=value=>window.chrome.webview.postMessage(value);
+window.chrome.webview.addEventListener('message',({data})=>{
+ if(typeof data.cameraMargin!=='number' || !Number.isFinite(data.cameraMargin))return;
+ const margin=Math.max(0,Math.min(.35,data.cameraMargin))*100,zone=document.querySelector('#zone');
+ Object.assign(zone.style,{left:margin+'%',top:margin+'%',width:(100-2*margin)+'%',height:(100-2*margin)+'%'});
+});
 let worker,stream,running=false,lastTime=-1,animationId,busy=false,session=0;
 let lastMetrics=0,resultCount=0,inferenceTotal=0,ageTotal=0,backend="CPU";
 function loadTracker(){

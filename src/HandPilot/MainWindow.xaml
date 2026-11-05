@@ -7,12 +7,17 @@
     <Button x:Name="ControlButton" Content="Enable mouse control" Click="ToggleControl" Padding="18,10" IsEnabled="False" />
     <TextBlock Text="  Ctrl + Alt + Space pauses immediately" VerticalAlignment="Center" Foreground="#A6B3CC" />
    </WrapPanel>
-   <TextBlock Text="Camera position maps directly to screen position." Foreground="#A6B3CC" Margin="0,0,0,12" />
+   <TextBlock Text="The dashed camera box maps to the full screen. Its corners are your screen corners." Foreground="#A6B3CC" Margin="0,0,0,12" />
+   <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+    <TextBlock Text="Camera border margin" VerticalAlignment="Center" Margin="0,0,12,0" />
+    <Slider x:Name="MarginSlider" Minimum="0" Maximum="35" Value="25" TickFrequency="5" IsSnapToTickEnabled="True" Width="180" VerticalAlignment="Center" ValueChanged="MarginChanged" ToolTip="Increase to reach the screen corners with less hand travel. Changing this pauses control." />
+    <TextBlock Text="{Binding ElementName=MarginSlider, Path=Value, StringFormat={}{0:0}%}" VerticalAlignment="Center" Margin="12,0,0,0" />
+   </StackPanel>
    <CheckBox Content="Smooth pointer (adds a little delay)" Foreground="White" Margin="0,0,0,12" Checked="SmoothingChanged" Unchecked="SmoothingChanged" />
    <CheckBox Content="Double-click mode (close and open hand to open files/apps)" Foreground="White" Margin="0,0,0,12" Checked="DoubleClickChanged" Unchecked="DoubleClickChanged" />
    <TextBlock x:Name="Status" Text="Loading tracker…" Margin="0,0,0,12" TextWrapping="Wrap" />
   </StackPanel>
-  <TextBlock DockPanel.Dock="Bottom" Text="Move palm to point / Close then open hand to click / Hold fist to drag / Two fingers to scroll.&#10;Your palm position in the mirrored preview matches the pointer position on screen." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,12,0,0" />
+  <TextBlock DockPanel.Dock="Bottom" Text="Move palm to point / Close then open hand to click / Hold fist to drag / Two fingers to scroll.&#10;Keep your whole hand visible. Move your palm to the dashed box corners to reach the screen corners." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,12,0,0" />
   <wv:WebView2 x:Name="CameraView" />
  </DockPanel>
 </Window>

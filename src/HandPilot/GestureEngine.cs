@@ -11,6 +11,7 @@ public interface IMouseOutput
 }
 public sealed class GestureEngine(IMouseOutput mouse)
 {
+    public double CameraMargin { get; set; } = .25;
     public bool DoubleClickEnabled { get; set; }
     private bool buttonPressed;
     private bool doubleClickForPress;
@@ -77,8 +78,10 @@ public sealed class GestureEngine(IMouseOutput mouse)
         {
             return;
         }
-        // Match the mirrored preview: left/right and top/bottom map directly to the desktop.
-        var target = new HandPoint(Math.Clamp(1-palm.X,0,1), Math.Clamp(palm.Y,0,1));
+        // The inner camera rectangle maps absolutely to the full desktop.
+        double margin = double.IsFinite(CameraMargin) ? Math.Clamp(CameraMargin,0,.35) : .25;
+        double span = 1-2*margin;
+        var target = new HandPoint(Math.Clamp((1-palm.X-margin)/span,0,1), Math.Clamp((palm.Y-margin)/span,0,1));
         // Time-based smoothing keeps response similar at different camera frame rates.
         // Follow deliberate motion quickly while filtering small tracking jitter.
         var now = Stopwatch.GetTimestamp();

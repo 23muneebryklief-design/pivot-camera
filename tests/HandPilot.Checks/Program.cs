@@ -1,5 +1,5 @@
 using HandPilot;
-var mouse=new FakeMouse();var engine=new GestureEngine(mouse);
+var mouse=new FakeMouse();var engine=new GestureEngine(mouse){CameraMargin=0};
 HandPoint[] HandAt(double x,double y,bool closed=false)
 {
  var p=Enumerable.Repeat(new HandPoint(.5,.5),21).ToArray();p[0]=new(.5,.9);
@@ -36,7 +36,17 @@ Check(doubleMouse.Downs==1,"Double-click mode must still start deliberate drag")
 doubleEngine.Process(HandAt(.6,.5));Check(doubleMouse.Ups==1 && doubleMouse.DoubleClicks==1,"Drag release must not double-click");
 doubleEngine.Process(HandAt(.6,.5,true));doubleEngine.Process([]);Check(doubleMouse.DoubleClicks==1,"Tracking loss must cancel pending double-click");
 doubleEngine.Process(HandAt(.6,.5));doubleEngine.Process(HandAt(.6,.5,true));doubleEngine.Reset();Check(doubleMouse.DoubleClicks==1,"Pause must cancel pending double-click");
-Console.WriteLine("Passed: absolute mapping, mirrored coordinates, corners, reacquisition, fist click stability, absolute drag, release, hand loss, pause scrolling, double-click, drag in double-click mode and cancellation.");
+// Verify reachable corners with the entire hand still inside the camera image.
+foreach(var corner in new[]{new HandPoint(.25,.25),new HandPoint(.75,.25),new HandPoint(.25,.75),new HandPoint(.75,.75)})
+{
+ var cornerMouse=new FakeMouse();var cornerEngine=new GestureEngine(cornerMouse){DoubleClickEnabled=true};
+ HandPoint[] Compact(bool closed){var h=HandAt(.5,.5,closed);return h.Select(p=>new HandPoint(corner.X+(p.X-.5)*.35,corner.Y+(p.Y-.5)*.35)).ToArray();}
+ var open=Compact(false);Check(open.All(p=>p.X>=0 && p.X<=1 && p.Y>=0 && p.Y<=1),"Corner fixture must keep the whole hand in frame");
+ cornerEngine.Start();cornerEngine.Process(open);
+ Check(Math.Abs(cornerMouse.Last.X-(corner.X<.5?1:0))<1e-9 && Math.Abs(cornerMouse.Last.Y-(corner.Y<.5?0:1))<1e-9,"Inner-box corners must reach exact screen corners");
+ cornerEngine.Process(Compact(true));cornerEngine.Process(open);Check(cornerMouse.DoubleClicks==1,"Corner double-click must remain possible");
+}
+Console.WriteLine("Passed: absolute mapping, mirrored coordinates, corners, reacquisition, fist click stability, absolute drag, release, hand loss, pause scrolling, double-click, drag in double-click mode cancellation, in-frame corner reach and corner double-clicks.");
 sealed class FakeMouse:IMouseOutput
 {
  public int Downs,Ups,Wheel,Moves,DoubleClicks;public HandPoint Last;
