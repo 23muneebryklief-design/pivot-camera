@@ -1,3 +1,4 @@
+using System.Diagnostics;
 namespace HandPilot;
 public readonly record struct HandPoint(double X, double Y);
 public interface IMouseOutput
@@ -13,6 +14,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
     private bool armed;
     private HandPoint? smooth;
     private HandPoint? origin;
+    private long lastUpdate;
     public void Start()
     {
         Reset();
@@ -23,7 +25,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
     public void Reset()
     {
         if (held) mouse.Up();
-        held = false; armed = false; smooth = null; origin = null; scrollY = null;
+        held = false; armed = false; smooth = null; origin = null; scrollY = null; lastUpdate = 0;
     }
     public void Process(HandPoint[] p)
     {
@@ -49,7 +51,19 @@ public sealed class GestureEngine(IMouseOutput mouse)
         scrollY = null;
         // Treat the first palm position as screen centre; mirror horizontal motion.
         var target = new HandPoint(Math.Clamp(.5+(origin.Value.X-palm.X)/.76,0,1), Math.Clamp(.5+(palm.Y-origin.Value.Y)/.76,0,1));
-        smooth = smooth is HandPoint old ? new(old.X+(target.X-old.X)*.3,old.Y+(target.Y-old.Y)*.3) : target;
+        // Time-based smoothing keeps response similar at different camera frame rates.
+        // Follow deliberate motion quickly while filtering small tracking jitter.
+        var now = Stopwatch.GetTimestamp();
+        double dt = lastUpdate == 0 ? 1.0/30 : Math.Clamp(Stopwatch.GetElapsedTime(lastUpdate,now).TotalSeconds,1.0/120,.1);
+        lastUpdate = now;
+        if (smooth is HandPoint old)
+        {
+            double distance = Math.Sqrt(Math.Pow(target.X-old.X,2)+Math.Pow(target.Y-old.Y,2));
+            double tau = .065 - .05*Math.Clamp(distance/.06,0,1);
+            double alpha = 1-Math.Exp(-dt/tau);
+            smooth = new(old.X+(target.X-old.X)*alpha,old.Y+(target.Y-old.Y)*alpha);
+        }
+        else smooth = target;
         mouse.Move(smooth.Value.X,smooth.Value.Y);
         if (nextHeld && !held) mouse.Down();
         if (!nextHeld && held) mouse.Up();

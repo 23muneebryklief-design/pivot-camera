@@ -25,13 +25,13 @@ dotnet run --project src/HandPilot
 | Move while holding a fist | Drag |
 | Index and middle fingers up, ring finger folded | Scroll by moving fingers vertically |
 
-The pointer starts at the centre when you enable control. Your first tracked palm position becomes the neutral position; moving from there moves the pointer. Re-enabling control or reacquiring a lost hand resets that neutral position. The pointer is mirrored and smoothed. Show an open hand after enabling or reacquiring tracking to arm fist clicking. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
+The pointer starts at the centre when you enable control. Your first tracked palm position becomes the neutral position; moving from there moves the pointer. Re-enabling control or reacquiring a lost hand resets that neutral position. The pointer is mirrored with time-based adaptive smoothing: small motions are filtered more strongly, while larger movements respond faster. Show an open hand after enabling or reacquiring tracking to arm fist clicking. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
 
 ## Architecture
 
 - C# / .NET 8 WPF desktop host and gesture state machine.
 - Windows SendInput for desktop mouse input.
-- WebView2 camera preview, with MediaPipe Hand Landmarker running in JavaScript/WASM locally.
+- WebView2 camera preview, with MediaPipe Hand Landmarker running locally in a dedicated JavaScript/WASM worker. Only one frame is processed at a time; newer frames are skipped while busy to avoid a backlog. Capture requests 480�360 at up to 30 FPS; inference frames are resized to 480 pixels wide. The preview reports tracking FPS and inference time.
 - MediaPipe 0.10.14 runtime loaded from jsDelivr; Google hosts the model. These services receive asset download requests, not camera frames from this application.
 - WebView profile is stored in `%LOCALAPPDATA%/HandPilot/WebView2`.
 
