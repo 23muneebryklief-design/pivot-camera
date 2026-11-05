@@ -46,7 +46,7 @@ start.onclick=async()=>{
   tracker=await HandLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.65});
   stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:camera.value},width:{ideal:640},height:{ideal:480}},audio:false});
   video.srcObject=stream;await video.play();lastTime=-1;running=true;
-  status('Camera active: '+stream.getVideoTracks()[0].label+'. Point your index finger, or pinch thumb and index finger.');send({ready:true});
+  status('Camera active: '+stream.getVideoTracks()[0].label+'. Move your open hand to point. Close and open your hand to click; hold a fist to drag.');send({ready:true});
   start.textContent='Camera active';camera.disabled=false;refresh.disabled=false;animationId=requestAnimationFrame(frame);
  }catch(e){stop();status('Unable to start camera: '+e.message);start.disabled=!camera.value;}
  finally{camera.disabled=false;refresh.disabled=false;}

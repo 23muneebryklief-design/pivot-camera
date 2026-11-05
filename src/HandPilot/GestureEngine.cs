@@ -10,6 +10,7 @@ public interface IMouseOutput
 public sealed class GestureEngine(IMouseOutput mouse)
 {
     private bool held;
+    private bool armed;
     private HandPoint? smooth;
     private HandPoint? origin;
     public void Start()
@@ -22,15 +23,20 @@ public sealed class GestureEngine(IMouseOutput mouse)
     public void Reset()
     {
         if (held) mouse.Up();
-        held = false; smooth = null; origin = null; scrollY = null;
+        held = false; armed = false; smooth = null; origin = null; scrollY = null;
     }
     public void Process(HandPoint[] p)
     {
         if (p.Length != 21 || p.Any(v => !double.IsFinite(v.X) || !double.IsFinite(v.Y))) { Reset(); return; }
-        origin ??= p[8];
+        var palm = new HandPoint((p[0].X+p[5].X+p[9].X+p[13].X+p[17].X)/5, (p[0].Y+p[5].Y+p[9].Y+p[13].Y+p[17].Y)/5);
+        origin ??= palm;
         double Distance(int a, int b) => Math.Sqrt(Math.Pow(p[a].X-p[b].X,2)+Math.Pow(p[a].Y-p[b].Y,2));
-        var pinch = Distance(4,8) / Math.Max(Distance(0,9), .025);
-        bool nextHeld = pinch < (held ? .38 : .25);
+        // Compare fingertips to their middle joints relative to the wrist.
+        // A wider release threshold avoids repeated clicks near the fist boundary.
+        bool Closed(int tip) => Distance(0,tip) < Math.Max(Distance(0,tip-2),.025)*(held ? 1.05 : .9);
+        bool fist = new[]{8,12,16,20}.All(Closed);
+        if (!fist) armed = true;
+        bool nextHeld = armed && fist;
         bool scrolling = !nextHeld && p[8].Y < p[6].Y && p[12].Y < p[10].Y && p[16].Y > p[14].Y;
         if (scrolling)
         {
@@ -41,8 +47,8 @@ public sealed class GestureEngine(IMouseOutput mouse)
             scrollY ??= y; return;
         }
         scrollY = null;
-        // Treat the first fingertip position as screen centre; mirror horizontal motion.
-        var target = new HandPoint(Math.Clamp(.5+(origin.Value.X-p[8].X)/.76,0,1), Math.Clamp(.5+(p[8].Y-origin.Value.Y)/.76,0,1));
+        // Treat the first palm position as screen centre; mirror horizontal motion.
+        var target = new HandPoint(Math.Clamp(.5+(origin.Value.X-palm.X)/.76,0,1), Math.Clamp(.5+(palm.Y-origin.Value.Y)/.76,0,1));
         smooth = smooth is HandPoint old ? new(old.X+(target.X-old.X)*.3,old.Y+(target.Y-old.Y)*.3) : target;
         mouse.Move(smooth.Value.X,smooth.Value.Y);
         if (nextHeld && !held) mouse.Down();

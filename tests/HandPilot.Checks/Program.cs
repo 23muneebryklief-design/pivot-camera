@@ -1,22 +1,20 @@
 using HandPilot;
 var mouse=new FakeMouse();var engine=new GestureEngine(mouse);
-HandPoint[] Hand(double pinch){var p=Enumerable.Repeat(new HandPoint(.5,.5),21).ToArray();p[0]=new(.5,.9);p[9]=new(.5,.5);p[8]=new(.5,.3);p[4]=new(.5+pinch,.3);return p;}
+HandPoint[] Hand(bool closed=false){var p=Enumerable.Repeat(new HandPoint(.5,.5),21).ToArray();p[0]=new(.5,.9);foreach(int tip in new[]{8,12,16,20}){p[tip-3]=new(.5,.6);p[tip-2]=new(.5,.4);p[tip]=new(.5,closed?.65:.1);}return p;}
 void Check(bool ok,string message){if(!ok)throw new Exception(message);}
-var startup=Hand(.2);startup[8]=new(.2,.02);startup[4]=new(.6,.02);
-engine.Start();Check(mouse.Last==new HandPoint(.5,.5),"Enabling must centre cursor immediately");
-engine.Process(startup);Check(mouse.Last==new HandPoint(.5,.5),"High starting hand must stay at centre");
-engine.Process(startup);Check(mouse.Last==new HandPoint(.5,.5),"Stationary starting hand must not drift");
-startup[8]=new(.1,.12);engine.Process(startup);Check(mouse.Last.X>.5 && mouse.Last.Y>.5,"Hand movement must move relative to centre");
-engine.Start();Check(mouse.Last==new HandPoint(.5,.5),"Re-enabling must recenter");
-engine.Reset();
-engine.Process(Hand(.04));Check(mouse.Downs==1,"Pinch must press once");
-engine.Process(Hand(.04));Check(mouse.Downs==1,"Held pinch must not repeat");
-engine.Process(Hand(.12));Check(mouse.Ups==0,"Hysteresis must retain drag");
-engine.Process(Hand(.2));Check(mouse.Ups==1,"Release must lift button");
-engine.Process(Hand(.04));engine.Process([]);Check(mouse.Ups==2,"Lost hand must release drag");
-engine.Process(Hand(.04));engine.Reset();Check(mouse.Ups==3,"Pause must release drag");
-var invalid=Hand(.04);invalid[8]=new(double.NaN,0);engine.Process(invalid);Check(mouse.Downs==3,"Invalid frame must not click");
-var scroll=Hand(.2);scroll[6]=new(.5,.6);scroll[12]=new(.6,.3);scroll[10]=new(.6,.6);scroll[16]=new(.7,.8);scroll[14]=new(.7,.6);
-engine.Process(scroll);scroll[8]=new(.5,.2);scroll[12]=new(.6,.2);engine.Process(scroll);Check(mouse.Wheel==120,"Two fingers moving up must scroll up");
-Console.WriteLine("Passed: centred startup, relative movement, re-enable, pinch, drag, hysteresis, hand loss, pause, invalid frames, scroll.");
+engine.Start();Check(mouse.Last==new HandPoint(.5,.5),"Enable must centre");
+engine.Process(Hand(true));Check(mouse.Downs==0,"Starting with fist must not click");
+engine.Process(Hand());Check(mouse.Last==new HandPoint(.5,.5),"Opening fingers must not move palm pointer");
+engine.Process(Hand(true));Check(mouse.Downs==1,"Fist must press once");Check(mouse.Last==new HandPoint(.5,.5),"Closing fingers must not move palm pointer");
+engine.Process(Hand(true));Check(mouse.Downs==1,"Held fist must not repeat");
+engine.Process(Hand());Check(mouse.Ups==1,"Open hand must release click");
+var partial=Hand();partial[8]=new(.5,.65);engine.Process(partial);Check(mouse.Downs==1,"One folded finger must not click");
+var moved=Hand();for(int i=0;i<21;i++)moved[i]=new(moved[i].X-.1,moved[i].Y+.1);engine.Process(moved);Check(mouse.Last.X>.5 && mouse.Last.Y>.5,"Pointer must follow palm movement");
+engine.Process(Hand(true));engine.Process([]);Check(mouse.Ups==2,"Lost hand must release fist drag");
+engine.Process(Hand(true));Check(mouse.Downs==2,"Reacquiring fist must not click");
+engine.Process(Hand());engine.Process(Hand(true));engine.Reset();Check(mouse.Ups==3,"Pause must release drag");
+var invalid=Hand();invalid[8]=new(double.NaN,0);engine.Process(invalid);Check(mouse.Downs==3,"Invalid frame must not click");
+engine.Start();Check(mouse.Last==new HandPoint(.5,.5),"Re-enable must centre");
+var scroll=Hand();scroll[16]=new(.5,.65);scroll[20]=new(.5,.65);engine.Process(scroll);scroll[8]=new(.5,0);scroll[12]=new(.5,0);engine.Process(scroll);Check(mouse.Wheel==120,"Two-finger scroll must work");
+Console.WriteLine("Passed: centred startup, palm movement, fist click and drag, open release, partial hand, hand loss, pause, scroll.");
 sealed class FakeMouse:IMouseOutput{public int Downs,Ups,Wheel;public HandPoint Last;public void Move(double x,double y){Last=new(x,y);if(x<0||x>1||y<0||y>1)throw new Exception("Out of bounds");}public void Down()=>Downs++;public void Up()=>Ups++;public void Scroll(int delta)=>Wheel+=delta;}
