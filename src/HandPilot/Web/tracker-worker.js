@@ -1,12 +1,19 @@
 // Classic worker: MediaPipe's WASM loader can use importScripts here.
-let tracker;
+let tracker,backend="CPU";
 self.onmessage = async ({data}) => {
  if(data.type === 'init') {
   try {
    const {HandLandmarker,FilesetResolver}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
    const files=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-   tracker=await HandLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.65});
-   postMessage({type:'ready'});
+   const options={baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5};
+   try {
+    tracker=await HandLandmarker.createFromOptions(files,{...options,baseOptions:{...options.baseOptions,delegate:'GPU'},canvas:new OffscreenCanvas(480,360)});
+    backend='GPU';
+   } catch {
+    tracker=await HandLandmarker.createFromOptions(files,{...options,baseOptions:{...options.baseOptions,delegate:'CPU'}});
+    backend='CPU';
+   }
+   postMessage({type:'ready',backend});
   } catch(e) { postMessage({type:'error',message:e.message}); }
   return;
  }

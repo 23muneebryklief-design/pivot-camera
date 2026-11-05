@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         }
         catch(Exception ex) { Pause(); Status.Text="Control paused: "+ex.Message; }
     }
+    private void SmoothingChanged(object sender,RoutedEventArgs e) => gestures.SmoothingEnabled=((System.Windows.Controls.CheckBox)sender).IsChecked==true;
     private void SensitivityChanged(object sender,RoutedPropertyChangedEventArgs<double> e)
     {
         gestures.Sensitivity=e.NewValue;

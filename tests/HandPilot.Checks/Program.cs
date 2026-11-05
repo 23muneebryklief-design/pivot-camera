@@ -26,5 +26,15 @@ foreach(var offset in new[]{new HandPoint(-.17,0),new HandPoint(.17,0),new HandP
 var lowMouse=new FakeMouse();var low=new GestureEngine(lowMouse){Sensitivity=1};low.Start();low.Process(Hand());
 var shifted=Hand();for(int i=0;i<21;i++)shifted[i]=new(shifted[i].X-.17,shifted[i].Y);
 for(int i=0;i<50;i++)low.Process(shifted);Check(lowMouse.Last.X<.8,"Lower sensitivity must allow finer movement");
-Console.WriteLine("Passed: centred startup, palm movement, fist click and drag, open release, partial hand, hand loss, pause, scroll, sensitivity, all four screen edges.");
+var clickMouse=new FakeMouse();var clickEngine=new GestureEngine(clickMouse);clickEngine.Start();clickEngine.Process(Hand());
+HandPoint[] Offset(bool closed,double delta){var h=Hand(closed);for(int i=0;i<21;i++)h[i]=new(h[i].X+delta,h[i].Y);return h;}
+var folding=Offset(false,.005);folding[8]=new(folding[8].X,.65);folding[12]=new(folding[12].X,.65);
+clickEngine.Process(folding);Check(clickMouse.Last==new HandPoint(.5,.5),"Folding fingers must freeze pointer");
+clickEngine.Process(Offset(true,.01));Check(clickMouse.Downs==1 && clickMouse.Last==new HandPoint(.5,.5),"Fist must press at frozen target");
+clickEngine.Process(Offset(true,.02));Check(clickMouse.Last==new HandPoint(.5,.5),"Small fist tremor must not drag");
+clickEngine.Process(Offset(false,.02));Check(clickMouse.Ups==1 && clickMouse.Last==new HandPoint(.5,.5),"Release must keep clicked target");
+clickEngine.Process(Offset(false,.02));Check(clickMouse.Last==new HandPoint(.5,.5),"Open palm must resume without jump");
+clickEngine.Process(Offset(false,-.08));Check(clickMouse.Last.X>.82,"Direct pointer must follow in one frame without smoothing delay");
+clickEngine.Process(Offset(true,-.08));clickEngine.Process(Offset(true,-.13));Check(clickMouse.Last.X>.98,"Deliberate fist movement must drag");
+Console.WriteLine("Passed: centred startup, palm movement, fist click and drag, open release, partial hand, hand loss, pause, scroll, sensitivity, screen edges, click stability, drag threshold, direct response.");
 sealed class FakeMouse:IMouseOutput{public int Downs,Ups,Wheel;public HandPoint Last;public void Move(double x,double y){Last=new(x,y);if(x<0||x>1||y<0||y>1)throw new Exception("Out of bounds");}public void Down()=>Downs++;public void Up()=>Ups++;public void Scroll(int delta)=>Wheel+=delta;}
