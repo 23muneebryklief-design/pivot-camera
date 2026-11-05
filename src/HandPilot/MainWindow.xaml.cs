@@ -59,7 +59,7 @@ public partial class MainWindow : Window
     {
         if(enabled) { Pause(); return; }
         if(DateTime.UtcNow-lastFrame>TimeSpan.FromMilliseconds(500)) { Status.Text="Show your hand to the camera before enabling control."; return; }
-        enabled=true; ControlButton.Content="Pause mouse control"; Status.Text="Mouse control active — Ctrl + Alt + Space to pause.";
+        gestures.Start(); enabled=true; ControlButton.Content="Pause mouse control"; Status.Text="Mouse control active — Ctrl + Alt + Space to pause.";
     }
     private void Pause() { enabled=false; gestures.Reset(); ControlButton.Content="Enable mouse control"; Status.Text="Mouse control paused."; }
     private IntPtr Hook(IntPtr hwnd,int msg,IntPtr wParam,IntPtr lParam,ref bool handled)

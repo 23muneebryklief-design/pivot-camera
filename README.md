@@ -25,7 +25,7 @@ dotnet run --project src/HandPilot
 | Move while pinched | Drag |
 | Index and middle fingers up, ring finger folded | Scroll by moving fingers vertically |
 
-The pointer is mirrored and smoothed. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
+The pointer starts at the centre when you enable control. Your first tracked index fingertip position becomes the neutral position; moving from there moves the pointer. Re-enabling control or reacquiring a lost hand resets that neutral position. The pointer is mirrored and smoothed. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
 
 ## Architecture
 
