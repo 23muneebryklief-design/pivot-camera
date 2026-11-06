@@ -1,116 +1,69 @@
 # HandPilot
 
+A Windows webcam hand-control prototype. This build focuses on the movement milestone: comfortable reach to all four corners, stable pointing, and recovery after hand loss. **Clicking and scrolling are paused in this build** so gesture recognition cannot interrupt movement testing.
 
+## Pull and run
 
-A Windows desktop prototype for controlling your PC with webcam hand gestures.
+Requires Windows 10/11 x64, the .NET 8 SDK (8.0.425 or a compatible patch), Microsoft Edge WebView2 Runtime, a webcam, and internet access to load tracking assets.
 
-
-
-## Run
-
-
-
-Requires Windows 10/11 x64, the .NET 8 SDK, Microsoft Edge WebView2 Runtime, a webcam, and internet access to download the tracker assets.
-
-
+Close any running HandPilot window first. From your repository folder:
 
 ```powershell
-
-dotnet run --project src/HandPilot
-
+git pull --ff-only origin main
+dotnet run --project src/HandPilot -c Release
 ```
 
+1. Select your webcam. Use **Find cameras** if names are missing, then **Start preview**. The selected device is requested explicitly.
+2. Choose **Calibrate reach**. Movement stays paused during calibration.
+3. Capture five comfortable positions: centre, upper left, upper right, lower right, lower left in the mirrored preview. Keep your wrist and every finger visible, hold still for at least half a second, and press **Capture position** with your other hand. Enter also captures when the desktop controls have focus.
+4. Calibration saves automatically for that camera and display arrangement. It is required before starting movement.
+5. Show your hand steadily and choose **Start movement**. Stabilization is automatic. Finger folding does not activate clicks, scrolling, or movement-blocking gestures in this build.
+6. **Ctrl + Alt + Space** always pauses. Control resumes automatically after a brief hand-tracking loss, but an explicit pause requires **Start movement** again. Closing the app stops the camera and input.
 
+## Repeatable live movement check
 
-1. Press **Find cameras** and allow camera access. Select your built-in webcam from the **Camera** dropdown, then press **Start camera preview**. The selected device is requested explicitly, so a connected phone is not silently substituted. Switching cameras pauses mouse control; restart preview and enable control again.
+After calibration, choose **Check movement**. It opens a fullscreen guided check and starts movement if needed. Keep the physical mouse still during the check.
 
-2. Show one hand in good lighting. The preview draws dots on detected joints.
+- Reach all four corners twice, holding each for 0.4 seconds within 24 pixels of the corner.
+- Hold the cursor near the centre for two seconds within a 12-pixel span.
+- Remove your hand completely. The cursor must hold within 3 pixels for half a second.
+- Bring your hand back and return to the centre. Also watch the recovery transition: it should not teleport or remain stuck.
 
-3. Press **Enable mouse control**.
+Corner, steady, and recovery holds count only with a fresh, fully visible hand and agreement between the engine's output and the real Windows cursor. Physical mouse movement alone cannot pass them. A step times out if it cannot be completed. Esc exits the check; Ctrl + Alt + Space pauses control. Movement pauses after completion or cancellation.
 
-4. Press **Ctrl + Alt + Space** at any time to pause. Closing the window stops the camera.
+Completed pass/fail results save locally under `%LOCALAPPDATA%/HandPilot/MovementChecks/`. Reports include step times, pointing span, sampled processing-to-cursor ages, and the criteria used. **The automated live check does not certify recovery smoothness**; its report explicitly leaves that for visual review. Do not treat passing synthetic tests as a completed webcam acceptance test.
 
+## Movement pipeline
 
+- .NET 8 WPF host with native Windows `SendInput` output.
+- WebView2 preview with MediaPipe Hand Landmarker in a dedicated JavaScript/WASM worker. One inference is in flight; camera frames are skipped while busy instead of queued.
+- Camera capture requests 480x360 at up to 60 FPS when supported. Actual dimensions, camera FPS, tracking FPS, inference time, and processing age remain visible beneath the fitted preview.
+- Camera-frame callbacks are used when available, with an animation-frame fallback. GPU initialization falls back to CPU if unavailable.
+- Every result carries a session ID, sequence, and capture timestamp. Browser and native layers reject results older than 120 ms. Native input runs on a background timer and rechecks freshness at output; a 150 ms stream timeout holds control and releases pending input. A stalled snapshot/worker is stopped after one second and offers a preview restart.
+- Always-on pixel-aware adaptive filtering suppresses small tremors and follows deliberate travel more quickly. Exact corner snapping avoids endlessly approaching an edge.
+- Hand reacquisition requires at least three samples spanning 100 ms. A bounded 120 ms blend then returns from the previous cursor position to the absolute mapped target. Lost tracking never extrapolates movement.
+- Calibration maps your comfortable palm workspace to the full Windows virtual desktop. Profiles are stored atomically per camera and display arrangement; corrupt or incompatible profiles require recalibration.
 
-## Gestures
-
-
-
-| Gesture | Action |
-
-| --- | --- |
-
-| Move your palm | Move cursor across the Windows virtual desktop |
-
-| Close hand into a fist | Left button down |
-
-| Open hand | Left button up (close then open to click) |
-
-| Move while holding a fist | Drag |
-
-| Index and middle fingers up, ring finger folded | Scroll by moving fingers vertically |
-
-
-
-The dashed **Screen area** rectangle in the camera preview maps absolutely to your whole Windows virtual desktop. Its four corners match your screen corners. The default **Camera border margin** is 25% on each side, so your palm only needs to move across the central half of the image and your fingers can stay visible. Increase the margin up to 35% if corners are still hard to reach. Set it to 0% for full-camera mapping. Changing the margin pauses control; enable it again after adjusting. There is no starting-position offset. Palm position is the average of the wrist and four knuckle landmarks. Clicking briefly freezes the pointer while your fingers close and release.
-
-The pointer defaults to direct movement without extra smoothing. Enable **Smooth pointer** if needed for jitter. Fist formation freezes pointer movement; while holding a fist, move the palm at least 3% of the camera frame to begin a drag. The tracker tries GPU acceleration and falls back to CPU if GPU initialization fails. The preview reports the active backend and frame age as well as tracking speed. Show an open hand after enabling or reacquiring tracking to arm fist clicking. Lost tracking releases the mouse button. A 500 ms watchdog also releases it if frames stop arriving. Control starts disabled. The global shortcut only pauses; use the app button to enable it again.
-
-
-
-Enable **Double-click mode** to open files or desktop shortcuts with a single close-and-open gesture. The two clicks are sent together at the frozen pointer position when you open your hand, so you do not need to repeat the gesture quickly. Holding a fist and moving still drags; releasing after a drag does not double-click. Turn the mode off for ordinary single-click selection.
-
-## Architecture
-
-
-
-- C# / .NET 8 WPF desktop host and gesture state machine.
-
-- Windows SendInput for desktop mouse input.
-
-- WebView2 camera preview, with MediaPipe Hand Landmarker running locally in a dedicated JavaScript/WASM worker. Only one frame is processed at a time; newer frames are skipped while busy to avoid a backlog. Capture requests 480x360 at up to 60 FPS when supported; inference frames are resized to 480 pixels wide. The preview reports tracking FPS and inference time.
-
-- MediaPipe 0.10.14 runtime loaded from jsDelivr; Google hosts the model. These services receive asset download requests, not camera frames from this application.
-
-- WebView profile is stored in `%LOCALAPPDATA%/HandPilot/WebView2`.
-
-
-
-This initial version uses a JavaScript tracking component; it is not an entirely C# inference implementation. Moving inference to C# / ONNX is a future option. The application does not record or upload camera frames. Initial setup and tracker loading require internet access.
-
-
+The freshness cutoff prevents old input; it cannot make a slow detector faster. If results repeatedly exceed the budget, the app holds the cursor and reports delayed tracking. Timing starts before the browser frame snapshot and excludes camera sensor/driver buffering and display latency. Reacquisition deliberately adds confirmation and blending time; it is distinct from steady-state tracking latency.
 
 ## Checks
 
-
-
 ```powershell
-
 dotnet run --project tests/HandPilot.Checks
-
-dotnet build src/HandPilot
-
+dotnet run --project tests/HandPilot.CalibrationChecks
+dotnet run --project tests/HandPilot.SessionChecks
+node tests/web-tracking-checks.cjs
+dotnet build src/HandPilot -c Release
 ```
 
+The .NET checks cover mapping, jitter, 30/60 FPS response, bounded recovery, invalid/stale frames, calibration, profile persistence, input cancellation, and live-check criteria. Node checks cover freshness, overlay expiry, session cancellation, single-flight processing, worker watchdog, explicit camera selection, telemetry, and GPU fallback. These are deterministic tests; physical webcam acceptance remains necessary on each device.
 
+## Local data and limits
 
-## Prototype limits
+Camera frames are processed locally; the app does not record or upload them. MediaPipe 0.10.14 is loaded from jsDelivr and the model from Google; those services receive asset requests. Startup therefore still requires internet access. WebView data lives under `%LOCALAPPDATA%/HandPilot/WebView2`, reach profiles in `%LOCALAPPDATA%/HandPilot/calibration.json`, and movement reports in the folder above. These local data files are not part of the repository.
 
+This remains a movement-test prototype, not a production release. Clicking/dragging/scrolling code is retained internally for the later interaction milestone but is disabled in the current desktop flow. Accuracy depends on lighting, camera placement, and hand visibility. Multi-monitor arrangements, especially gaps and mixed scaling, need live verification. Windows secure desktop/UAC and higher-integrity applications cannot be controlled. There is no installer or right-click flow yet.
 
-
-Hand tracking accuracy depends on lighting and camera position. Gestures need tuning through real webcam trials. Input cannot control Windows secure desktop/UAC prompts or applications at a higher integrity level. No right-click, calibration UI, or installer yet. Keep a physical mouse available while trying the prototype.
-
-
-
-## References
-
-
-
-- [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js)
-
-- [Microsoft WebView2](https://learn.microsoft.com/microsoft-edge/webview2/)
-
-
+References: [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js), [Microsoft WebView2](https://learn.microsoft.com/microsoft-edge/webview2/).
 
 No license has been selected yet.
-

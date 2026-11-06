@@ -21,7 +21,8 @@ self.onmessage = async ({data}) => {
   const began=performance.now();
   try {
    const result=tracker.detectForVideo(data.bitmap,data.timestamp);
-   postMessage({type:'result',timestamp:data.timestamp,inferenceMs:performance.now()-began,points:(result.landmarks[0]??[]).map(({x,y})=>({x,y}))});
+   postMessage({type:'result',sessionId:data.sessionId,sequence:data.sequence,timestamp:data.timestamp,
+    inferenceMs:performance.now()-began,backend,points:(result.landmarks[0]??[]).map(({x,y})=>({x,y}))});
   } catch(e) { postMessage({type:'error',message:e.message}); }
   finally { data.bitmap.close(); }
  }

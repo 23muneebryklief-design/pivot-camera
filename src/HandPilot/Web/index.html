@@ -1,99 +1,240 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HandPilot camera</title>
-<style>body{margin:0;background:#192235;color:#edf3ff;font:16px system-ui}main{padding:20px}select{max-width:100%;padding:10px;background:#101522;color:white;border:1px solid #71809b;border-radius:8px;margin:0 8px 8px 0}button{background:#70e0c4;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}#stage{position:relative;margin-top:16px;max-width:800px}video{width:100%;display:block;transform:scaleX(-1);border-radius:12px}canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}p{color:#b5c4df}#zone{position:absolute;left:25%;top:25%;width:50%;height:50%;border:2px dashed #70e0c4;box-sizing:border-box;pointer-events:none}#zone span{background:#101522cc;color:#70e0c4;font-size:12px;padding:3px;position:absolute;top:0;left:0}</style>
-<main><label for="camera">Camera</label> <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select><button id="refresh">Find cameras</button> <button id="start" disabled>Start camera preview</button><p id="message">Press Find cameras and allow camera access, then select your PC webcam. Camera access is briefly used to discover device names. Internet is needed to load the tracker.</p><p id="performance" aria-live="off">Tracking speed will appear here.</p><div id="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas><div id="zone"><span>Screen area</span></div></div></main>
+<style>
+  :root{color-scheme:dark;font:13px "Segoe UI",system-ui,sans-serif;color:#eaf1fa;background:#101722}
+  *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
+  main{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:8px;padding:12px}
+  .toolbar{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
+  label{font-size:12px;color:#abb9cc}select{flex:1 1 190px;min-width:120px;max-width:100%;text-overflow:ellipsis}
+  button,select{font:inherit;min-height:34px;border:1px solid #34465e;border-radius:7px;padding:6px 10px;color:#eaf1fa;background:#1c293c}
+  button{cursor:pointer;white-space:nowrap}button:hover:not(:disabled){background:#283c54}button:focus-visible,select:focus-visible{outline:2px solid #76e3c7;outline-offset:2px}
+  #start{color:#10231f;background:#76e3c7;border-color:#76e3c7;font-weight:600}#start:hover:not(:disabled){background:#a2efdc}
+  button:disabled{opacity:.48;cursor:default}
+  #viewport{min-width:0;min-height:0;display:grid;place-items:center;overflow:hidden;border:1px solid #25344a;border-radius:10px;background:#0b111b}
+  #stage{position:relative;overflow:hidden;max-width:100%;max-height:100%;width:100%;aspect-ratio:4/3;background:#0b111b}
+  video,canvas{display:block;width:100%;height:100%;position:absolute;inset:0;transform:scaleX(-1)}video{object-fit:contain}canvas{pointer-events:none}
+  #zone{position:absolute;left:30%;top:32%;width:40%;height:40%;border:1px dashed #8ee4d0;pointer-events:none}
+  #zone span{position:absolute;top:0;left:0;padding:3px 6px;font-size:10px;white-space:nowrap;background:#101722bd;color:#b9f5e6;border-radius:0 0 5px 0}
+  #calibration{position:absolute;left:8px;right:8px;bottom:8px;margin:0;padding:9px 12px;text-align:center;background:#0d1729e8;border:1px solid #76e3c7;border-radius:7px;font-size:13px;color:#f2fffb;pointer-events:none}
+  #calibration[hidden]{display:none}
+  #message{min-height:16px;max-height:34px;overflow:hidden;margin:0;color:#bdc9d9;font-size:12px;line-height:17px}
+  #performance{margin:0;font-size:11px;line-height:15px;color:#8fa4bf;font-variant-numeric:tabular-nums;white-space:normal}
+  @media(max-width:520px){main{padding:8px;gap:6px}.toolbar{gap:6px}label{display:none}select{flex-basis:140px}button,select{min-height:30px;padding:5px 8px;font-size:12px}}
+</style>
+<main>
+  <div class="toolbar">
+    <label for="camera">Camera</label>
+    <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select>
+    <button id="refresh">Find cameras</button>
+    <button id="start" disabled>Start preview</button>
+  </div>
+  <div id="viewport">
+    <div id="stage">
+      <video id="video" autoplay playsinline muted aria-label="Mirrored camera preview"></video>
+      <canvas id="canvas" aria-hidden="true"></canvas>
+      <div id="zone"><span>Control area</span></div>
+      <p id="calibration" hidden></p>
+    </div>
+  </div>
+  <p id="message" role="status">Choose a camera to begin. Use Find cameras if device names are missing.</p>
+  <p id="performance" aria-live="off">Tracking diagnostics appear here when the camera starts.</p>
+</main>
 <script type="module">
-const start=document.querySelector('#start'),video=document.querySelector('#video'),canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d'),message=document.querySelector('#message');
-const camera=document.querySelector('#camera'),refresh=document.querySelector('#refresh');
+import { FrameGate } from './tracking-policy.js';
+
+const start=document.querySelector('#start'),video=document.querySelector('#video'),canvas=document.querySelector('#canvas');
+const ctx=canvas.getContext('2d'),message=document.querySelector('#message'),camera=document.querySelector('#camera');
+const refresh=document.querySelector('#refresh'),performanceText=document.querySelector('#performance');
+const viewport=document.querySelector('#viewport'),stage=document.querySelector('#stage'),zone=document.querySelector('#zone');
+const calibration=document.querySelector('#calibration'),gate=new FrameGate(120);
 const send=value=>window.chrome.webview.postMessage(value);
-window.chrome.webview.addEventListener('message',({data})=>{
- if(typeof data.cameraMargin!=='number' || !Number.isFinite(data.cameraMargin))return;
- const margin=Math.max(0,Math.min(.35,data.cameraMargin))*100,zone=document.querySelector('#zone');
- Object.assign(zone.style,{left:margin+'%',top:margin+'%',width:(100-2*margin)+'%',height:(100-2*margin)+'%'});
-});
-let worker,stream,running=false,lastTime=-1,animationId,busy=false,session=0;
-let lastMetrics=0,resultCount=0,inferenceTotal=0,ageTotal=0,backend="CPU";
-function loadTracker(){
- return new Promise((resolve,reject)=>{
-  const active=new Worker('tracker-worker.js');worker=active;
-  const timeout=setTimeout(()=>{active.terminate();reject(new Error('Tracker loading timed out. Check your internet connection.'));},60000);
-  active.onerror=e=>{clearTimeout(timeout);reject(new Error(e.message || 'Tracking worker failed'));if(running){stop();start.disabled=!camera.value;status('Tracker stopped. Restart preview.');}};
-  active.onmessage=({data})=>{
-   if(active!==worker)return;
-   if(data.type==='ready'){backend=data.backend;clearTimeout(timeout);resolve();}
-   if(data.type==='error'){clearTimeout(timeout);reject(new Error(data.message));if(running){stop();start.disabled=!camera.value;status('Tracker stopped: '+data.message);}}
-   if(data.type==='result'){
-    busy=false;if(!running)return;
-    const age=performance.now()-data.timestamp;
-    const points=data.points;
-    send({points:age>300 ? [] : points});
-    ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#70e0c4';
-    for(const p of points){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,4,0,Math.PI*2);ctx.fill();}
-    resultCount++;inferenceTotal+=data.inferenceMs;ageTotal+=age;
-    const now=performance.now();
-    if(now-lastMetrics>=1000){document.querySelector('#performance').textContent=`${backend} | Tracking: ${(resultCount*1000/(now-lastMetrics)).toFixed(0)} FPS | Inference: ${(inferenceTotal/resultCount).toFixed(0)} ms | Frame age: ${(ageTotal/resultCount).toFixed(0)} ms`;resultCount=0;inferenceTotal=0;ageTotal=0;lastMetrics=now;}
-   }
-  };
-  active.postMessage({type:'init'});
- });
+let worker=null,stream=null,running=false,starting=false,lifecycle=0,activeSessionId='';
+let cancelLoad=null,callbackId=null,callbackKind=null,lastVideoTime=-1,overlayTimer=null,metricsTimer=null,frameTimeout=null;
+let backend='CPU',lastMetrics=0,resultCount=0,inferenceTotal=0,ageTotal=0,cameraFrames=0,lastPresented=null;
+
+function fitStage(){
+  const aspect=video.videoWidth && video.videoHeight ? video.videoWidth/video.videoHeight : 4/3;
+  const width=Math.max(0,Math.min(viewport.clientWidth,viewport.clientHeight*aspect));
+  stage.style.width=width+'px';stage.style.height=(width/aspect)+'px';
 }
-function status(text){message.textContent=text;send({status:text});}
+new ResizeObserver(fitStage).observe(viewport);
+video.addEventListener('loadedmetadata',fitStage);
+window.chrome.webview.addEventListener('message',({data})=>{
+  if(data?.bounds){
+    const {left,top,right,bottom}=data.bounds;
+    if([left,top,right,bottom].every(Number.isFinite) && left>=0 && top>=0 && right<=1 && bottom<=1 && left<right && top<bottom){
+      Object.assign(zone.style,{left:left*100+'%',top:top*100+'%',width:(right-left)*100+'%',height:(bottom-top)*100+'%'});
+    }
+  }
+  if(data?.calibration){
+    calibration.hidden=!data.calibration.active;
+    calibration.textContent=typeof data.calibration.prompt==='string' ? data.calibration.prompt : '';
+  }
+});
+
+function status(text){message.textContent=text;message.title=text;send({status:text});}
+function clearOverlay(){clearTimeout(overlayTimer);overlayTimer=null;ctx.clearRect(0,0,canvas.width,canvas.height);}
+function drawOverlay(result){
+  clearOverlay();
+  ctx.fillStyle='#76e3c7';
+  for(const p of result.overlayPoints){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,3,0,Math.PI*2);ctx.fill();}
+  if(result.overlayPoints.length){
+    const current=lifecycle;
+    overlayTimer=setTimeout(()=>{if(current===lifecycle)clearOverlay();},Math.max(0,gate.maxAgeMs-result.processingAgeMs));
+  }
+}
+function reportMetrics(){
+  if(!running)return;
+  const now=performance.now(),elapsed=Math.max(1,now-lastMetrics);
+  const settings=stream?.getVideoTracks()[0]?.getSettings?.()??{};
+  const metrics={backend,fps:resultCount*1000/elapsed,inferenceMs:resultCount?inferenceTotal/resultCount:0,
+    processingAgeMs:resultCount?ageTotal/resultCount:0,cameraFps:cameraFrames*1000/elapsed,
+    width:settings.width??video.videoWidth,height:settings.height??video.videoHeight};
+  send({metrics});
+  performanceText.textContent=`${backend} · ${metrics.fps.toFixed(0)} tracking fps · ${metrics.inferenceMs.toFixed(0)} ms inference · ${metrics.processingAgeMs.toFixed(0)} ms processing · ${metrics.cameraFps.toFixed(0)} camera fps · ${metrics.width} × ${metrics.height}`;
+  lastMetrics=now;resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
+}
+function loadTracker(current){
+  return new Promise((resolve,reject)=>{
+    const active=new Worker('tracker-worker.js');worker=active;
+    let settled=false;
+    const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timeout);if(cancelLoad===cancel)cancelLoad=null;error?reject(error):resolve();};
+    const cancel=()=>finish(new Error('Camera startup cancelled.'));
+    cancelLoad=cancel;
+    const timeout=setTimeout(()=>{
+      if(current!==lifecycle || active!==worker)return;
+      active.terminate();finish(new Error('Tracker loading timed out. Check your internet connection.'));
+    },60000);
+    const fail=text=>{
+      if(current!==lifecycle || active!==worker)return;
+      finish(new Error(text));
+      if(running){stop();status('Tracking stopped: '+text+'. Start preview to retry.');}
+    };
+    active.onerror=e=>fail(e.message||'Tracking worker failed');
+    active.onmessage=({data})=>{
+      if(current!==lifecycle || active!==worker)return;
+      if(data.type==='ready'){backend=data.backend==='GPU'?'GPU':'CPU';finish();return;}
+      if(data.type==='error'){fail(data.message||'Tracking worker failed');return;}
+      if(data.type!=='result')return;
+      const result=gate.finish(data,performance.now());
+      if(!result)return;
+      clearTimeout(frameTimeout);frameTimeout=null;
+      send({sessionId:result.sessionId,sequence:result.sequence,capturedAtUnixMs:performance.timeOrigin+result.timestamp,
+        points:result.points,inferenceMs:result.inferenceMs,backend:result.backend});
+      drawOverlay(result);
+      resultCount++;inferenceTotal+=result.inferenceMs;ageTotal+=result.processingAgeMs;
+    };
+    active.postMessage({type:'init'});
+  });
+}
+function updateButtons(){start.disabled=!camera.value||running||starting;camera.disabled=starting;refresh.disabled=starting;start.textContent=running?'Camera active':'Start preview';}
 async function listCameras(){
- const previous=camera.value;
- const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput' && d.deviceId);
- camera.replaceChildren(new Option('Choose a camera',''));
- devices.forEach((d,i)=>camera.add(new Option(d.label || `Camera ${i+1}`,d.deviceId)));
- if(devices.some(d=>d.deviceId===previous)) camera.value=previous;
- start.disabled=!camera.value || running;
- return devices.length;
+  const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId);
+  const previous=camera.value;
+  camera.replaceChildren(new Option('Choose a camera',''));
+  devices.forEach((d,i)=>camera.add(new Option(d.label||`Camera ${i+1}`,d.deviceId)));
+  if(devices.some(d=>d.deviceId===previous))camera.value=previous;
+  updateButtons();return devices.length;
 }
 refresh.onclick=async()=>{
- refresh.disabled=true;
- let permissionStream;
- try{
-  if(!stream) permissionStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
-  const count=await listCameras();
-  status(count?'Select your PC webcam from the Camera list, then start preview.':'No cameras found. Connect a webcam and try again.');
- }catch(e){status('Unable to list cameras: '+e.message);}
- finally{permissionStream?.getTracks().forEach(t=>t.stop());refresh.disabled=false;}
+  refresh.disabled=true;
+  const current=lifecycle;
+  let permissionStream;
+  try{
+    if(!stream)permissionStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    if(current!==lifecycle)return;
+    const count=await listCameras();
+    if(current===lifecycle)status(count?'Select your camera, then start preview.':'No cameras found. Connect a webcam and try again.');
+  }catch(e){if(current===lifecycle)status('Unable to list cameras: '+e.message);}
+  finally{permissionStream?.getTracks().forEach(t=>t.stop());if(current===lifecycle)updateButtons();}
 };
-camera.onchange=()=>{
- stop(); start.disabled=!camera.value; start.textContent='Start camera preview';
- status(camera.value?'Selected: '+camera.selectedOptions[0].text+'. Start preview when ready.':'Choose a camera.');
-};
+camera.onchange=()=>{stop();status(camera.value?'Selected: '+camera.selectedOptions[0].text+'. Start preview when ready.':'Choose a camera.');};
 navigator.mediaDevices.addEventListener('devicechange',async()=>{
- try{const active=camera.value;await listCameras();if(active && !camera.value){stop();status('Selected camera disconnected. Choose another camera.');}}
- catch(e){status('Unable to refresh cameras: '+e.message);}
+  try{const selected=camera.value;await listCameras();if(selected&&!camera.value){stop();status('Selected camera disconnected. Choose another camera.');}}
+  catch(e){status('Unable to refresh cameras: '+e.message);}
 });
 listCameras().catch(()=>{});
+
 start.onclick=async()=>{
- if(!camera.value){status('Choose a camera first.');return;}
- start.disabled=true;camera.disabled=true;refresh.disabled=true;
- try{
-  status('Loading hand tracker…');
-  await loadTracker();
-  stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:camera.value},width:{ideal:480},height:{ideal:360},frameRate:{ideal:60,max:60}},audio:false});
-  video.srcObject=stream;await video.play();lastTime=-1;running=true;busy=false;lastMetrics=performance.now();resultCount=0;inferenceTotal=0;ageTotal=0;canvas.width=video.videoWidth;canvas.height=video.videoHeight;
-  status('Camera active: '+stream.getVideoTracks()[0].label+'. Move your open hand to point. Close and open your hand to click; hold a fist to drag.');send({ready:true});
-  start.textContent='Camera active';camera.disabled=false;refresh.disabled=false;animationId=requestAnimationFrame(frame);
- }catch(e){stop();status('Unable to start camera: '+e.message);start.disabled=!camera.value;}
- finally{camera.disabled=false;refresh.disabled=false;}
+  if(starting||running)return;
+  if(!camera.value){status('Choose a camera first.');return;}
+  stop();
+  const current=lifecycle,selected=camera.value;
+  starting=true;updateButtons();
+  let acquired=null;
+  try{
+    status('Preparing hand tracking…');
+    await loadTracker(current);
+    if(current!==lifecycle)return;
+    acquired=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:selected},width:{ideal:480},height:{ideal:360},frameRate:{ideal:60,max:60}},audio:false});
+    if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
+    stream=acquired;video.srcObject=stream;await video.play();
+    if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
+    activeSessionId=crypto.randomUUID();gate.start(activeSessionId);running=true;starting=false;lastVideoTime=-1;lastPresented=null;
+    lastMetrics=performance.now();resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
+    canvas.width=video.videoWidth;canvas.height=video.videoHeight;fitStage();
+    stream.getVideoTracks()[0].addEventListener('ended',()=>{if(current===lifecycle){stop();status('Camera disconnected. Choose a camera and start again.');}});
+    status('Camera ready. Keep your whole hand visible in the control area.');
+    send({ready:true,sessionId:activeSessionId,cameraId:selected});
+    updateButtons();metricsTimer=setInterval(reportMetrics,1000);scheduleFrame(current);
+  }catch(e){
+    acquired?.getTracks().forEach(t=>t.stop());
+    if(current===lifecycle){stop();status('Unable to start camera: '+e.message);}
+  }finally{if(current===lifecycle){starting=false;updateButtons();}}
 };
-function stop(){running=false;session++;busy=false;cancelAnimationFrame(animationId);stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;worker?.terminate();worker=null;ctx.clearRect(0,0,canvas.width,canvas.height);send({ready:false});send({points:[]});}
-async function frame(){
- if(!running)return;
- animationId=requestAnimationFrame(frame);
- if(busy || video.readyState<2 || video.currentTime===lastTime)return;
- busy=true;lastTime=video.currentTime;
- const currentSession=session,active=worker,timestamp=performance.now();
- try {
-  // Only one frame may be in flight: skip new frames instead of building a queue.
-  const bitmap=await createImageBitmap(video,{resizeWidth:480,resizeHeight:Math.max(1,Math.round(480*video.videoHeight/video.videoWidth))});
-  if(!running || currentSession!==session){bitmap.close();return;}
-  active.postMessage({type:'frame',bitmap,timestamp},[bitmap]);
- } catch(e) {
-  if(currentSession===session){stop();status('Tracker stopped: '+e.message+'. Restart preview.');start.disabled=!camera.value;}
- }
+function stop(){
+  const previous=activeSessionId;
+  lifecycle++;running=false;starting=false;gate.stop();
+  if(callbackId!==null){if(callbackKind==='video')video.cancelVideoFrameCallback(callbackId);else cancelAnimationFrame(callbackId);}
+  callbackId=null;clearInterval(metricsTimer);metricsTimer=null;clearTimeout(frameTimeout);frameTimeout=null;clearOverlay();
+  cancelLoad?.();cancelLoad=null;worker?.terminate();worker=null;
+  stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;activeSessionId='';
+  calibration.hidden=true;send({ready:false,sessionId:previous});updateButtons();
+}
+function scheduleFrame(current){
+  if(!running||current!==lifecycle)return;
+  if(typeof video.requestVideoFrameCallback==='function'){
+    callbackKind='video';callbackId=video.requestVideoFrameCallback((_,metadata)=>onFrame(current,metadata));
+  }else{callbackKind='animation';callbackId=requestAnimationFrame(()=>onFrame(current,null));}
+}
+function onFrame(current,metadata){
+  if(!running||current!==lifecycle)return;
+  scheduleFrame(current);
+  if(video.readyState<2)return;
+  if(metadata){
+    const presented=metadata.presentedFrames;
+    cameraFrames+=lastPresented===null?1:Math.max(0,presented-lastPresented);lastPresented=presented;
+  }else{
+    if(video.currentTime===lastVideoTime)return;
+    cameraFrames++;
+  }
+  lastVideoTime=video.currentTime;
+  const token=gate.begin(performance.now());
+  if(token){
+    // A missing worker response (or stuck snapshot) must not leave the camera
+    // running with a permanently occupied inference slot.
+    frameTimeout=setTimeout(()=>{
+      if(current===lifecycle&&gate.isCurrent(token)){
+        stop();status('Tracking stopped responding. Start preview to retry.');
+      }
+    },1000);
+    capture(token,current,worker);
+  }
+}
+async function capture(token,current,active){
+  let bitmap;
+  try{
+    // Timestamp before snapshot creation. Drop new camera frames while one is
+    // running; never queue old hand positions.
+    bitmap=await createImageBitmap(video,{resizeWidth:480,resizeHeight:Math.max(1,Math.round(480*video.videoHeight/video.videoWidth))});
+    if(current!==lifecycle||active!==worker||!gate.isCurrent(token)){bitmap.close();return;}
+    active.postMessage({type:'frame',sessionId:token.sessionId,sequence:token.sequence,timestamp:token.timestamp,bitmap},[bitmap]);
+    bitmap=null;
+  }catch(e){bitmap?.close();if(current===lifecycle){stop();status('Tracking stopped: '+e.message+'. Start preview to retry.');}}
 }
 window.addEventListener('pagehide',stop);
-</script></html>
+</script>
+</html>
