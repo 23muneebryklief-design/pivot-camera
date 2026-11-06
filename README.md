@@ -14,15 +14,15 @@ dotnet run --project src/HandPilot -c Release
 ```
 
 1. Select your webcam. Use **Find cameras** if names are missing, then **Start preview**. The selected device is requested explicitly.
-2. Choose **Calibrate reach**. Movement stays paused during calibration.
-3. Capture five comfortable positions: centre, upper left, upper right, lower right, lower left in the mirrored preview. Keep your wrist and every finger visible, hold still for at least half a second, and press **Capture position** with your other hand. Enter also captures when the desktop controls have focus.
-4. Calibration saves automatically for that camera and display arrangement. It is required before starting movement.
+2. Choose **Quick setup**. Movement stays paused during setup.
+3. Show your relaxed open hand where it feels comfortable for about a second. A progress bar fills and setup saves automatically. No corner poses, capture clicks, or second hand are needed. Small natural tremors and brief missed detections are tolerated; if your hand is too close to an image edge or fills the camera, the app gives a specific repositioning hint.
+4. The estimated reach saves for that camera and display arrangement. Existing saved profiles still work; Quick setup can replace one. Setup is required only when this camera/display has no valid saved profile. You still choose **Start movement** afterward.
 5. Show your hand steadily and choose **Start movement**. Stabilization is automatic. Finger folding does not activate clicks, scrolling, or movement-blocking gestures in this build.
 6. **Ctrl + Alt + Space** always pauses. Control resumes automatically after a brief hand-tracking loss, but an explicit pause requires **Start movement** again. Closing the app stops the camera and input.
 
 ## Repeatable live movement check
 
-After calibration, choose **Check movement**. It opens a fullscreen guided check and starts movement if needed. Keep the physical mouse still during the check.
+After setup, choose **Check movement**. It opens a fullscreen guided check and starts movement if needed. Keep the physical mouse still during the check.
 
 - Reach all four corners twice, holding each for 0.4 seconds within 24 pixels of the corner.
 - Hold the cursor near the centre for two seconds within a 12-pixel span.
@@ -42,7 +42,7 @@ Completed pass/fail results save locally under `%LOCALAPPDATA%/HandPilot/Movemen
 - Every result carries a session ID, sequence, and capture timestamp. Browser and native layers reject results older than 120 ms. Native input runs on a background timer and rechecks freshness at output; a 150 ms stream timeout holds control and releases pending input. Camera preview stays independent of tracking: the first inference has a 10-second warmup budget, later inferences have a 3-second watchdog, and a stalled/failed tracker gets one CPU recovery attempt. Further failure leaves the preview running with **Retry tracking**, without reopening the camera. Movement must be started again after a tracking-session restart.
 - Always-on pixel-aware adaptive filtering suppresses small tremors and follows deliberate travel more quickly. Exact corner snapping avoids endlessly approaching an edge.
 - Hand reacquisition requires at least three samples spanning 100 ms. A bounded 120 ms blend then returns from the previous cursor position to the absolute mapped target. Lost tracking never extrapolates movement.
-- Calibration maps your comfortable palm workspace to the full Windows virtual desktop. Profiles are stored atomically per camera and display arrangement; corrupt or incompatible profiles require recalibration.
+- One-pose setup estimates a symmetric palm workspace from your neutral position, visible hand size, and available camera room, then maps it to the full Windows virtual desktop. This is an estimate, so use the live corner check to validate reach. Profiles are stored atomically per camera and display arrangement; corrupt or incompatible profiles require setup again.
 
 The freshness cutoff prevents old input; it cannot make a slow detector faster. If results repeatedly exceed the budget, the app holds the cursor and reports delayed tracking. Timing starts before the browser frame snapshot and excludes camera sensor/driver buffering and display latency. Reacquisition deliberately adds confirmation and blending time; it is distinct from steady-state tracking latency.
 

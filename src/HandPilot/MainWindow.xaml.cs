@@ -2,7 +2,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -26,10 +25,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Loaded += Initialize;
-        PreviewKeyDown += (_, e) =>
-        {
-            if (calibration != null && e.Key == Key.Enter) { CaptureCalibration(this, new RoutedEventArgs()); e.Handled = true; }
-        };
         uiTimer.Tick += (_, _) => RefreshState();
         Closed += (_, _) =>
         {
@@ -119,11 +114,16 @@ public partial class MainWindow : Window
             {
                 double age = NowMs - frame.CapturedAtUnixMs;
                 calibration.AddSample(age >= 0 && age <= MovementSession.MaximumResultAgeMs ? frame.Points : [], frame.CapturedAtUnixMs / 1000);
+                // Evaluate on arrival, before a UI-timer tick can age an eligible frame out.
+                AdvanceCalibration(NowMs / 1000);
             }
         }
         catch (Exception ex)
         {
             movement.Pause();
+            calibration = null;
+            CalibrationPanel.Visibility = Visibility.Collapsed;
+            UpdatePreview();
             ActionMessage.Text = "Movement paused: " + ex.Message;
         }
     }
@@ -133,14 +133,14 @@ public partial class MainWindow : Window
         calibrated = profiles.TryLoad(cameraId, displayKey, out var saved);
         bounds = calibrated ? saved : CameraBounds.Default;
         movement.Configure(bounds, DesktopGeometry.Width, DesktopGeometry.Height);
-        ReachStatus.Text = calibrated ? "Your saved comfortable reach is ready for this camera and display arrangement." : "Calibrate your comfortable reach before starting movement.";
+        ReachStatus.Text = calibrated ? "Your saved comfortable reach is ready for this camera and display arrangement." : "Use Quick setup: show your open hand comfortably for about a second.";
         ActionMessage.Text = "Movement only · clicking and scrolling are paused during this milestone.";
     }
 
     private void RefreshState()
     {
         if (closing) return;
-        if (++displayCheckTicks >= 10)
+        if (calibration != null || ++displayCheckTicks >= 10)
         {
             displayCheckTicks = 0;
             string current = DesktopGeometry.Key();
@@ -151,6 +151,10 @@ public partial class MainWindow : Window
                 LoadReach(); UpdatePreview();
                 ActionMessage.Text = "Display arrangement changed. Movement was paused; check your saved reach before restarting.";
             }
+        }
+        if (calibration != null)
+        {
+            AdvanceCalibration(NowMs / 1000);
         }
         var state = movement.Snapshot(NowMs);
         TrackingStatus.Text = !cameraReady ? "Camera setup" : state.Condition switch
@@ -182,43 +186,59 @@ public partial class MainWindow : Window
         movement.Pause();
         calibration = new ReachCalibration();
         CalibrationPanel.Visibility = Visibility.Visible;
-        CalibrationPrompt.Text = "Position 1 of 5 · " + calibration.Prompt;
-        ActionMessage.Text = "Movement is paused. Hold one hand in view and use your other hand to capture each position.";
+        CalibrationPrompt.Text = calibration.Prompt;
+        CalibrationProgress.Value = 0;
+        CalibrationHint.Text = "Show your open hand in a comfortable position. Setup saves automatically.";
+        ActionMessage.Text = "Movement is paused during setup. No corners to reach and no capture buttons to press.";
         UpdatePreview(); RefreshState();
     }
 
-    private void CaptureCalibration(object sender, RoutedEventArgs e)
+    private void FinishCalibration(CameraBounds result)
+    {
+        if (calibration == null || !cameraReady || !result.IsValid) return;
+        bounds = result;
+        movement.Configure(bounds, DesktopGeometry.Width, DesktopGeometry.Height);
+        calibrated = true;
+        calibration = null;
+        CalibrationPanel.Visibility = Visibility.Collapsed;
+        try
+        {
+            profiles.Save(cameraId, displayKey, bounds);
+            ReachStatus.Text = "Quick setup saved. Reach is estimated from your comfortable hand position.";
+            ActionMessage.Text = "Start movement, then use Check movement to validate your webcam.";
+        }
+        catch (Exception ex) { ReachStatus.Text = "Reach set up for this session."; ActionMessage.Text = "Could not save setup: " + ex.Message; }
+        UpdatePreview();
+    }
+
+    private void AdvanceCalibration(double nowSeconds)
     {
         if (calibration == null) return;
-        if (!calibration.TryCapture(NowMs / 1000, out var message)) { ActionMessage.Text = message; return; }
-        if (calibration.Result is CameraBounds result)
+        bool complete = calibration.TryCapture(nowSeconds, out var hint);
+        CalibrationProgress.Value = calibration.Progress;
+        CalibrationHint.Text = hint;
+        if (complete && calibration.Result is CameraBounds result)
         {
-            bounds = result;
-            movement.Configure(bounds, DesktopGeometry.Width, DesktopGeometry.Height);
-            calibrated = true;
-            calibration = null;
-            CalibrationPanel.Visibility = Visibility.Collapsed;
-            try
+            string currentDisplay = DesktopGeometry.Key();
+            if (currentDisplay != displayKey)
             {
-                profiles.Save(cameraId, displayKey, bounds);
-                ReachStatus.Text = "Comfortable reach saved. All four calibrated poses map to the screen corners.";
-                ActionMessage.Text = "Start movement, then use Check movement to validate your webcam.";
+                displayKey = currentDisplay;
+                calibration = null;
+                CalibrationPanel.Visibility = Visibility.Collapsed;
+                LoadReach();
+                ActionMessage.Text = "Display arrangement changed. Run Quick setup again for this arrangement.";
+                UpdatePreview();
             }
-            catch (Exception ex) { ReachStatus.Text = "Reach calibrated for this session."; ActionMessage.Text = "Could not save calibration: " + ex.Message; }
+            else FinishCalibration(result);
         }
-        else
-        {
-            CalibrationPrompt.Text = $"Position {calibration.StepIndex + 1} of 5 · " + calibration.Prompt;
-            ActionMessage.Text = "Position captured. Move comfortably to the next position, keeping all fingers visible.";
-        }
-        UpdatePreview(); RefreshState();
+        else UpdatePreview();
     }
 
     private void CancelCalibration(object sender, RoutedEventArgs e)
     {
         calibration = null;
         CalibrationPanel.Visibility = Visibility.Collapsed;
-        ActionMessage.Text = calibrated ? "Calibration cancelled. Your previous reach is still available." : "Calibration cancelled. Calibrate reach before starting movement.";
+        ActionMessage.Text = calibrated ? "Setup cancelled. Your previous reach is still available." : "Setup cancelled. Use Quick setup before starting movement.";
         UpdatePreview(); RefreshState();
     }
 
@@ -227,7 +247,7 @@ public partial class MainWindow : Window
         CameraView?.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
         {
             bounds = new { left = bounds.Left, top = bounds.Top, right = bounds.Right, bottom = bounds.Bottom },
-            calibration = new { active = calibration != null, prompt = calibration?.Prompt ?? "" }
+            calibration = new { active = calibration != null, prompt = calibration == null ? "" : CalibrationHint.Text }
         }));
     }
 
@@ -243,7 +263,12 @@ public partial class MainWindow : Window
 
     private IntPtr Hook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == 0x0312 && wParam == (IntPtr)1) { movement.Pause(); RefreshState(); handled = true; }
+        if (msg == 0x0312 && wParam == (IntPtr)1)
+        {
+            movement.Pause();
+            if (calibration != null) CancelCalibration(this, new RoutedEventArgs());
+            RefreshState(); handled = true;
+        }
         return IntPtr.Zero;
     }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);

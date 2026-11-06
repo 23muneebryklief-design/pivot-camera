@@ -1,37 +1,31 @@
 namespace HandPilot;
 
-/// <summary>Collects a comfortable screen reach without requiring input control to be enabled.</summary>
+/// <summary>One comfortable open-hand hold learns a small, safe palm workspace automatically.</summary>
 public sealed class ReachCalibration
 {
-    private const double RequiredHoldSeconds = .5;
+    private const double RequiredHoldSeconds = 1;
     private const double MaximumSampleAgeSeconds = .15;
-    private const double MaximumSampleGapSeconds = .2;
-    private const double MaximumPalmSpan = .02;
-    private readonly List<(double Time, HandPoint Palm)> samples = [];
-    private readonly List<HandPoint> captures = [];
+    private const double MaximumMissingSeconds = .35;
+    private const double MaximumStableSpan = .04;
+    private const double Padding = .025;
+    private readonly List<Observation> observations = [];
     private double lastSampleTime = double.NegativeInfinity;
-    private bool wholeHandVisible;
+    private double lastValidTime = double.NegativeInfinity;
+    private string hint = "Show your open hand where it feels comfortable.";
 
-    public int StepIndex => captures.Count;
+    private sealed record Observation(double Time, HandPoint? Palm, double Left = 0, double Top = 0, double Right = 0, double Bottom = 0);
     public bool IsComplete => Result.HasValue;
     public CameraBounds? Result { get; private set; }
-    public string Prompt => StepIndex switch
-    {
-        0 => "Hold your open hand comfortably in the centre. Keep your wrist and every finger visible, then capture.",
-        1 => "Move to your comfortable upper-left reach in the mirrored preview. Hold still, then capture.",
-        2 => "Move to your comfortable upper-right reach. Hold still, then capture.",
-        3 => "Move to your comfortable lower-right reach. Hold still, then capture.",
-        4 => "Move to your comfortable lower-left reach. Hold still, then capture.",
-        _ => "Your comfortable reach is saved. You can now test all four screen corners."
-    };
+    public double Progress { get; private set; }
+    public string Prompt => IsComplete ? "Your comfortable reach is ready." : "Hold your open hand comfortably for a moment. Setup saves automatically.";
 
     public void Reset()
     {
-        samples.Clear();
-        captures.Clear();
+        observations.Clear();
         Result = null;
-        lastSampleTime = double.NegativeInfinity;
-        wholeHandVisible = false;
+        Progress = 0;
+        lastSampleTime = lastValidTime = double.NegativeInfinity;
+        hint = "Show your open hand where it feels comfortable.";
     }
 
     public void AddSample(HandPoint[] points, double sampleTimeSeconds)
@@ -39,114 +33,140 @@ public sealed class ReachCalibration
         if (IsComplete) return;
         if (!double.IsFinite(sampleTimeSeconds) || sampleTimeSeconds <= lastSampleTime)
         {
-            // Never combine samples from different clocks or a repeated/older frame.
-            samples.Clear();
-            wholeHandVisible = false;
+            ClearHold();
+            hint = "Waiting for fresh hand tracking…";
             return;
         }
-
-        if (sampleTimeSeconds - lastSampleTime > MaximumSampleGapSeconds) samples.Clear();
+        if (sampleTimeSeconds - lastValidTime > MaximumMissingSeconds) ClearHold();
         lastSampleTime = sampleTimeSeconds;
-        wholeHandVisible = points.Length == 21 && points.All(point =>
-            double.IsFinite(point.X) && double.IsFinite(point.Y) &&
-            point.X >= 0 && point.X <= 1 && point.Y >= 0 && point.Y <= 1);
-        if (!wholeHandVisible)
+        if (!TryObserve(points, sampleTimeSeconds, out var observation, out hint))
         {
-            samples.Clear();
+            observations.Add(new(sampleTimeSeconds, null));
+            Trim(sampleTimeSeconds);
+            UpdateProgress();
             return;
         }
-
-        // A collapsed set of detections is not a usable hand for calibration.
-        if (points.Max(p => p.X) - points.Min(p => p.X) < .015 ||
-            points.Max(p => p.Y) - points.Min(p => p.Y) < .015)
+        lastValidTime = sampleTimeSeconds;
+        observations.Add(observation!);
+        Trim(sampleTimeSeconds);
+        if (!Stable(ValidObservations()))
         {
-            samples.Clear();
-            wholeHandVisible = false;
-            return;
+            // A deliberate move starts a new comfortable hold. A few noisy detections
+            // are ignored by the percentile span rather than erasing all progress.
+            ClearHold();
+            observations.Add(observation!);
+            hint = "Relax your hand here for a moment. Small tremors are fine.";
         }
-
-        var palm = new HandPoint(
-            1 - (points[0].X + points[5].X + points[9].X + points[13].X + points[17].X) / 5,
-            (points[0].Y + points[5].Y + points[9].Y + points[13].Y + points[17].Y) / 5);
-        samples.Add((sampleTimeSeconds, palm));
-        samples.RemoveAll(sample => sample.Time < sampleTimeSeconds - .8);
+        UpdateProgress();
     }
 
     public bool TryCapture(double nowSeconds, out string message)
     {
-        if (IsComplete)
+        if (IsComplete) { message = "Setup is already complete."; return false; }
+        if (!double.IsFinite(nowSeconds) || observations.Count == 0)
         {
-            message = "Calibration is already complete.";
+            message = hint;
             return false;
         }
-        if (!double.IsFinite(nowSeconds) || !wholeHandVisible || samples.Count == 0)
+        var latest = observations[^1];
+        double age = nowSeconds - latest.Time;
+        if (age < 0 || age > MaximumSampleAgeSeconds)
         {
-            message = "Keep your wrist and every finger inside the camera view.";
+            if (nowSeconds - lastValidTime > MaximumMissingSeconds) ClearHold();
+            message = "Show your open hand again. Setup will continue when tracking is fresh.";
             return false;
         }
-        var latest = samples[^1];
-        if (nowSeconds < latest.Time || nowSeconds - latest.Time > MaximumSampleAgeSeconds)
+        if (latest.Palm == null) { message = hint; return false; }
+        var valid = ValidObservations();
+        double activeSeconds = ActiveSeconds();
+        if (valid.Length < 8 || activeSeconds < RequiredHoldSeconds - 1e-6 ||
+            valid.Length < observations.Count * .7 || !Stable(valid))
         {
-            message = "Tracking is delayed or lost. Wait for your hand to be detected again.";
-            return false;
-        }
-
-        // Work backwards from the newest sample so a delayed capture cannot accept an old hold.
-        var hold = samples.Where(sample => sample.Time >= latest.Time - RequiredHoldSeconds - .04).ToArray();
-        if (hold.Length < 4 || latest.Time - hold[0].Time < RequiredHoldSeconds - .001)
-        {
-            message = "Hold your hand still for half a second, then capture again.";
-            return false;
-        }
-        if (hold.Max(sample => sample.Palm.X) - hold.Min(sample => sample.Palm.X) > MaximumPalmSpan ||
-            hold.Max(sample => sample.Palm.Y) - hold.Min(sample => sample.Palm.Y) > MaximumPalmSpan)
-        {
-            message = "Your hand is still moving. Settle in a comfortable position, then capture again.";
+            message = "Relax your open hand here for a moment. Setup saves automatically.";
             return false;
         }
 
-        var point = new HandPoint(hold.Average(sample => sample.Palm.X), hold.Average(sample => sample.Palm.Y));
-        if (StepIndex > 0 && !IsInExpectedCorner(point, captures[0], StepIndex))
+        var centre = new HandPoint(Median(valid.Select(v => v.Palm!.Value.X)), Median(valid.Select(v => v.Palm!.Value.Y)));
+        if (Math.Abs(latest.Palm.Value.X - centre.X) > MaximumStableSpan ||
+            Math.Abs(latest.Palm.Value.Y - centre.Y) > MaximumStableSpan)
         {
-            message = "Move farther toward the requested corner while keeping your whole hand visible, then try again.";
+            message = "Relax your hand here for a moment. Setup will save when it settles.";
             return false;
         }
-
-        if (StepIndex == 4)
+        // Extents are measured in the mirrored image, including the asymmetric thumb.
+        // The entire observed hand can translate to each learned corner with padding.
+        double safeLeft = valid.Max(v => v.Left) + Padding;
+        double safeTop = valid.Max(v => v.Top) + Padding;
+        double safeRight = 1 - valid.Max(v => v.Right) - Padding;
+        double safeBottom = 1 - valid.Max(v => v.Bottom) - Padding;
+        double halfWidth = Math.Min(.16, .85 * Math.Min(centre.X - safeLeft, safeRight - centre.X));
+        double halfHeight = Math.Min(.14, .85 * Math.Min(centre.Y - safeTop, safeBottom - centre.Y));
+        if (halfWidth < .06 || halfHeight < .06)
         {
-            var upperLeft = captures[1];
-            var upperRight = captures[2];
-            var lowerRight = captures[3];
-            var lowerLeft = point;
-            // Use the intersection, not the outer extremes: every captured pose must reach its corner.
-            var bounds = new CameraBounds(
-                Math.Max(upperLeft.X, lowerLeft.X),
-                Math.Max(upperLeft.Y, upperRight.Y),
-                Math.Min(upperRight.X, lowerRight.X),
-                Math.Min(lowerRight.Y, lowerLeft.Y));
-            var centre = captures[0];
-            if (!bounds.IsValid || bounds.Right - bounds.Left < .12 || bounds.Bottom - bounds.Top < .12 ||
-                centre.X <= bounds.Left || centre.X >= bounds.Right ||
-                centre.Y <= bounds.Top || centre.Y >= bounds.Bottom)
-            {
-                message = "The corner positions overlap. Restart calibration and use a slightly wider comfortable reach.";
-                return false;
-            }
-            Result = bounds;
+            Progress = 0;
+            message = safeRight - safeLeft < .16 || safeBottom - safeTop < .16
+                ? "Move a little farther from the camera so your whole hand has room to move."
+                : "Move your hand a little toward the centre of the preview, then relax it there.";
+            return false;
         }
-
-        captures.Add(point);
-        samples.Clear();
-        wholeHandVisible = false;
-        message = IsComplete ? "Calibration complete. Your reach is ready to save." : Prompt;
+        var bounds = new CameraBounds(centre.X - halfWidth, centre.Y - halfHeight, centre.X + halfWidth, centre.Y + halfHeight);
+        if (!bounds.IsValid) { message = "Move your open hand toward the centre of the preview."; return false; }
+        Result = bounds;
+        Progress = 1;
+        message = "Reach setup complete. Your hand is ready to move the cursor.";
         return true;
     }
 
-    private static bool IsInExpectedCorner(HandPoint point, HandPoint centre, int step)
+    private void ClearHold() { observations.Clear(); Progress = 0; }
+    private void Trim(double time) => observations.RemoveAll(v => v.Time < time - 1.6);
+    private Observation[] ValidObservations() => observations.Where(v => v.Palm.HasValue).ToArray();
+    private void UpdateProgress()
     {
-        bool left = step is 1 or 4;
-        bool top = step is 1 or 2;
-        return (left ? centre.X - point.X >= .06 : point.X - centre.X >= .06) &&
-               (top ? centre.Y - point.Y >= .06 : point.Y - centre.Y >= .06);
+        var valid = ValidObservations();
+        double coverage = observations.Count == 0 ? 0 : valid.Length / (double)observations.Count;
+        Progress = Stable(valid) && coverage >= .7 ? Math.Clamp(ActiveSeconds() / RequiredHoldSeconds, 0, .99) : 0;
+    }
+    private double ActiveSeconds()
+    {
+        double seconds = 0;
+        for (int i = 1; i < observations.Count; i++)
+        {
+            double gap = observations[i].Time - observations[i - 1].Time;
+            if (observations[i].Palm.HasValue && observations[i - 1].Palm.HasValue && gap <= .15)
+                seconds += gap;
+        }
+        return seconds;
+    }
+    private static bool Stable(Observation[] valid) => valid.Length < 3 ||
+        Span(valid.Select(v => v.Palm!.Value.X)) <= MaximumStableSpan &&
+        Span(valid.Select(v => v.Palm!.Value.Y)) <= MaximumStableSpan;
+    private static double Span(IEnumerable<double> values)
+    {
+        var sorted = values.Order().ToArray();
+        return sorted[(int)Math.Ceiling((sorted.Length - 1) * .9)] - sorted[(int)Math.Floor((sorted.Length - 1) * .1)];
+    }
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.Order().ToArray();
+        return (sorted[(sorted.Length - 1) / 2] + sorted[sorted.Length / 2]) / 2;
+    }
+    private static bool TryObserve(HandPoint[] points, double time, out Observation? observation, out string message)
+    {
+        observation = null;
+        message = "Keep your wrist and fingers in view. Move back a little if your hand is clipped.";
+        if (points.Length != 21 || points.Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y) || p.X < 0 || p.X > 1 || p.Y < 0 || p.Y > 1)) return false;
+        if (points.Max(p => p.X) - points.Min(p => p.X) < .015 || points.Max(p => p.Y) - points.Min(p => p.Y) < .015) return false;
+        double Distance(int a, int b) => Math.Sqrt(Math.Pow(points[a].X - points[b].X, 2) + Math.Pow(points[a].Y - points[b].Y, 2));
+        if (new[] { 8, 12, 16, 20 }.Count(tip => Distance(0, tip) > Math.Max(.015, Distance(0, tip - 2)) * 1.1) < 2)
+        {
+            message = "Open your hand naturally with your palm facing the camera.";
+            return false;
+        }
+        var palm = new HandPoint(1 - (points[0].X + points[5].X + points[9].X + points[13].X + points[17].X) / 5,
+            (points[0].Y + points[5].Y + points[9].Y + points[13].Y + points[17].Y) / 5);
+        double minX = points.Min(p => 1 - p.X), maxX = points.Max(p => 1 - p.X);
+        observation = new(time, palm, palm.X - minX, palm.Y - points.Min(p => p.Y), maxX - palm.X, points.Max(p => p.Y) - palm.Y);
+        message = "Relax your open hand here for a moment. Setup saves automatically.";
+        return true;
     }
 }
