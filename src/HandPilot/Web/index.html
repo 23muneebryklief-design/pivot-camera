@@ -29,7 +29,7 @@
     <label for="camera">Camera</label>
     <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select>
     <button id="refresh">Find cameras</button>
-    <button id="start" disabled>Start preview</button>
+    <button id="start" disabled>Start preview</button><button id="stop-preview" hidden>Stop preview</button>
   </div>
   <div id="viewport">
     <div id="stage">
@@ -45,18 +45,20 @@
 <script type="module">
 import { FrameGate } from './tracking-policy.js';
 
-const start=document.querySelector('#start'),video=document.querySelector('#video'),canvas=document.querySelector('#canvas');
-const ctx=canvas.getContext('2d'),message=document.querySelector('#message'),camera=document.querySelector('#camera');
-const refresh=document.querySelector('#refresh'),performanceText=document.querySelector('#performance');
-const viewport=document.querySelector('#viewport'),stage=document.querySelector('#stage'),zone=document.querySelector('#zone');
-const calibration=document.querySelector('#calibration'),gate=new FrameGate(120);
-const send=value=>window.chrome.webview.postMessage(value);
-let worker=null,stream=null,running=false,starting=false,lifecycle=0,activeSessionId='';
+const start=document.querySelector('#start'),stopPreview=document.querySelector('#stop-preview');
+const video=document.querySelector('#video'),canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d');
+const message=document.querySelector('#message'),camera=document.querySelector('#camera'),refresh=document.querySelector('#refresh');
+const performanceText=document.querySelector('#performance'),viewport=document.querySelector('#viewport');
+const stage=document.querySelector('#stage'),zone=document.querySelector('#zone'),calibration=document.querySelector('#calibration');
+const gate=new FrameGate(120),send=value=>window.chrome.webview.postMessage(value);
+// Preview lifetime is independent of tracking. A failed detector must never turn off a healthy camera.
+let worker=null,stream=null,running=false,starting=false,lifecycle=0,activeSessionId='',previewCameraId='';
 let cancelLoad=null,callbackId=null,callbackKind=null,lastVideoTime=-1,overlayTimer=null,metricsTimer=null,frameTimeout=null;
 let backend='CPU',lastMetrics=0,resultCount=0,inferenceTotal=0,ageTotal=0,cameraFrames=0,lastPresented=null;
+let automaticRetries=0,hasTrackerResult=false,devicesRequest=0;
 
 function fitStage(){
-  const aspect=video.videoWidth && video.videoHeight ? video.videoWidth/video.videoHeight : 4/3;
+  const aspect=video.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:4/3;
   const width=Math.max(0,Math.min(viewport.clientWidth,viewport.clientHeight*aspect));
   stage.style.width=width+'px';stage.style.height=(width/aspect)+'px';
 }
@@ -65,31 +67,21 @@ video.addEventListener('loadedmetadata',fitStage);
 window.chrome.webview.addEventListener('message',({data})=>{
   if(data?.bounds){
     const {left,top,right,bottom}=data.bounds;
-    if([left,top,right,bottom].every(Number.isFinite) && left>=0 && top>=0 && right<=1 && bottom<=1 && left<right && top<bottom){
+    if([left,top,right,bottom].every(Number.isFinite)&&left>=0&&top>=0&&right<=1&&bottom<=1&&left<right&&top<bottom)
       Object.assign(zone.style,{left:left*100+'%',top:top*100+'%',width:(right-left)*100+'%',height:(bottom-top)*100+'%'});
-    }
   }
-  if(data?.calibration){
-    calibration.hidden=!data.calibration.active;
-    calibration.textContent=typeof data.calibration.prompt==='string' ? data.calibration.prompt : '';
-  }
+  if(data?.calibration){calibration.hidden=!data.calibration.active;calibration.textContent=typeof data.calibration.prompt==='string'?data.calibration.prompt:'';}
 });
-
 function status(text){message.textContent=text;message.title=text;send({status:text});}
 function clearOverlay(){clearTimeout(overlayTimer);overlayTimer=null;ctx.clearRect(0,0,canvas.width,canvas.height);}
 function drawOverlay(result){
-  clearOverlay();
-  ctx.fillStyle='#76e3c7';
+  clearOverlay();ctx.fillStyle='#76e3c7';
   for(const p of result.overlayPoints){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,3,0,Math.PI*2);ctx.fill();}
-  if(result.overlayPoints.length){
-    const current=lifecycle;
-    overlayTimer=setTimeout(()=>{if(current===lifecycle)clearOverlay();},Math.max(0,gate.maxAgeMs-result.processingAgeMs));
-  }
+  if(result.overlayPoints.length){const current=lifecycle;overlayTimer=setTimeout(()=>{if(current===lifecycle)clearOverlay();},Math.max(0,gate.maxAgeMs-result.processingAgeMs));}
 }
 function reportMetrics(){
   if(!running)return;
-  const now=performance.now(),elapsed=Math.max(1,now-lastMetrics);
-  const settings=stream?.getVideoTracks()[0]?.getSettings?.()??{};
+  const now=performance.now(),elapsed=Math.max(1,now-lastMetrics),settings=stream?.getVideoTracks()[0]?.getSettings?.()??{};
   const metrics={backend,fps:resultCount*1000/elapsed,inferenceMs:resultCount?inferenceTotal/resultCount:0,
     processingAgeMs:resultCount?ageTotal/resultCount:0,cameraFps:cameraFrames*1000/elapsed,
     width:settings.width??video.videoWidth,height:settings.height??video.videoHeight};
@@ -97,103 +89,137 @@ function reportMetrics(){
   performanceText.textContent=`${backend} · ${metrics.fps.toFixed(0)} tracking fps · ${metrics.inferenceMs.toFixed(0)} ms inference · ${metrics.processingAgeMs.toFixed(0)} ms processing · ${metrics.cameraFps.toFixed(0)} camera fps · ${metrics.width} × ${metrics.height}`;
   lastMetrics=now;resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
 }
-function loadTracker(current){
+function updateButtons(){
+  start.disabled=!camera.value||running||starting;start.hidden=running;
+  start.textContent=stream?'Retry tracking':'Start preview';
+  stopPreview.hidden=!stream&&!starting;stopPreview.textContent=stream?'Stop preview':'Cancel';
+  camera.disabled=starting;refresh.disabled=starting;
+}
+function loadTracker(current,forceCpu){
   return new Promise((resolve,reject)=>{
-    const active=new Worker('tracker-worker.js');worker=active;
-    let settled=false;
-    const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timeout);if(cancelLoad===cancel)cancelLoad=null;error?reject(error):resolve();};
-    const cancel=()=>finish(new Error('Camera startup cancelled.'));
-    cancelLoad=cancel;
+    const active=new Worker('tracker-worker.js');worker=active;let settled=false;
+    const finish=error=>{if(settled)return;settled=true;clearTimeout(timeout);if(cancelLoad===cancel)cancelLoad=null;error?reject(error):resolve();};
+    const cancel=()=>finish(new Error('Tracking startup cancelled.'));cancelLoad=cancel;
     const timeout=setTimeout(()=>{
-      if(current!==lifecycle || active!==worker)return;
+      if(current!==lifecycle||active!==worker)return;
       active.terminate();finish(new Error('Tracker loading timed out. Check your internet connection.'));
     },60000);
     const fail=text=>{
-      if(current!==lifecycle || active!==worker)return;
+      if(current!==lifecycle||active!==worker)return;
       finish(new Error(text));
-      if(running){stop();status('Tracking stopped: '+text+'. Start preview to retry.');}
+      if(running)void recoverTracking(current,text);
     };
     active.onerror=e=>fail(e.message||'Tracking worker failed');
     active.onmessage=({data})=>{
-      if(current!==lifecycle || active!==worker)return;
+      if(current!==lifecycle||active!==worker)return;
       if(data.type==='ready'){backend=data.backend==='GPU'?'GPU':'CPU';finish();return;}
       if(data.type==='error'){fail(data.message||'Tracking worker failed');return;}
       if(data.type!=='result')return;
-      const result=gate.finish(data,performance.now());
-      if(!result)return;
-      clearTimeout(frameTimeout);frameTimeout=null;
+      const result=gate.finish(data,performance.now());if(!result)return;
+      clearTimeout(frameTimeout);frameTimeout=null;hasTrackerResult=true;
       send({sessionId:result.sessionId,sequence:result.sequence,capturedAtUnixMs:performance.timeOrigin+result.timestamp,
         points:result.points,inferenceMs:result.inferenceMs,backend:result.backend});
-      drawOverlay(result);
-      resultCount++;inferenceTotal+=result.inferenceMs;ageTotal+=result.processingAgeMs;
+      drawOverlay(result);resultCount++;inferenceTotal+=result.inferenceMs;ageTotal+=result.processingAgeMs;
     };
-    active.postMessage({type:'init'});
+    active.postMessage({type:'init',forceCpu});
   });
 }
-function updateButtons(){start.disabled=!camera.value||running||starting;camera.disabled=starting;refresh.disabled=starting;start.textContent=running?'Camera active':'Start preview';}
+async function startTracking(current,forceCpu=false){
+  await loadTracker(current,forceCpu);
+  if(current!==lifecycle||!stream)return;
+  activeSessionId=crypto.randomUUID();gate.start(activeSessionId);running=true;hasTrackerResult=false;
+  lastVideoTime=-1;lastPresented=null;lastMetrics=performance.now();resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
+  send({ready:true,sessionId:activeSessionId,cameraId:previewCameraId});
+  status('Camera ready. Keep your whole hand visible in the control area.');
+  metricsTimer=setInterval(reportMetrics,1000);scheduleFrame(current);
+}
+function stopTracking(){
+  const previous=activeSessionId;running=false;gate.stop();activeSessionId='';
+  if(callbackId!==null){if(callbackKind==='video')video.cancelVideoFrameCallback(callbackId);else cancelAnimationFrame(callbackId);}
+  callbackId=null;clearInterval(metricsTimer);metricsTimer=null;clearTimeout(frameTimeout);frameTimeout=null;clearOverlay();
+  cancelLoad?.();cancelLoad=null;worker?.terminate();worker=null;
+  if(previous)send({ready:false,sessionId:previous});
+}
+function trackingPaused(text){
+  stopTracking();
+  performanceText.textContent='Camera preview active · hand tracking paused';
+  status('Camera preview is still on. Hand tracking paused: '+text+' Select Retry tracking.');updateButtons();
+}
+async function recoverTracking(current,reason){
+  if(current!==lifecycle||!stream)return;
+  stopTracking();
+  if(automaticRetries>=1){trackingPaused(reason);return;}
+  automaticRetries++;starting=true;updateButtons();
+  performanceText.textContent='Camera preview active · restarting hand tracking';
+  status('Camera preview is still on. Restarting hand tracking with CPU fallback…');
+  try{
+    await startTracking(current,true);
+    if(current===lifecycle&&running)status('Tracking recovered. Show your hand steadily, then start movement again.');
+  }catch(e){if(current===lifecycle)trackingPaused(e.message);}
+  finally{if(current===lifecycle){starting=false;updateButtons();}}
+}
 async function listCameras(){
+  const current=lifecycle,request=++devicesRequest,previous=camera.value;
   const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId);
-  const previous=camera.value;
+  if(current!==lifecycle||request!==devicesRequest)return null;
   camera.replaceChildren(new Option('Choose a camera',''));
   devices.forEach((d,i)=>camera.add(new Option(d.label||`Camera ${i+1}`,d.deviceId)));
-  if(devices.some(d=>d.deviceId===previous))camera.value=previous;
-  updateButtons();return devices.length;
+  // Device enumeration can briefly omit a live camera after permission or driver events.
+  // The track's ended event, not a transient list change, determines camera loss.
+  if(previous&&!devices.some(d=>d.deviceId===previous)&&stream?.getVideoTracks()[0]?.readyState==='live')
+    camera.add(new Option(stream.getVideoTracks()[0].label||'Active camera',previous));
+  if(camera.options?Array.from(camera.options).some(d=>d.value===previous):devices.some(d=>d.deviceId===previous))camera.value=previous;
+  updateButtons();return devices;
 }
 refresh.onclick=async()=>{
-  refresh.disabled=true;
-  const current=lifecycle;
-  let permissionStream;
+  refresh.disabled=true;const current=lifecycle;let permissionStream;
   try{
     if(!stream)permissionStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
     if(current!==lifecycle)return;
-    const count=await listCameras();
-    if(current===lifecycle)status(count?'Select your camera, then start preview.':'No cameras found. Connect a webcam and try again.');
+    const devices=await listCameras();
+    if(current===lifecycle&&devices)status(devices.length?'Select your camera, then start preview.':'No cameras found. Connect a webcam and try again.');
   }catch(e){if(current===lifecycle)status('Unable to list cameras: '+e.message);}
   finally{permissionStream?.getTracks().forEach(t=>t.stop());if(current===lifecycle)updateButtons();}
 };
 camera.onchange=()=>{stop();status(camera.value?'Selected: '+camera.selectedOptions[0].text+'. Start preview when ready.':'Choose a camera.');};
 navigator.mediaDevices.addEventListener('devicechange',async()=>{
-  try{const selected=camera.value;await listCameras();if(selected&&!camera.value){stop();status('Selected camera disconnected. Choose another camera.');}}
-  catch(e){status('Unable to refresh cameras: '+e.message);}
+  const current=lifecycle,selected=camera.value;
+  try{const devices=await listCameras();if(current===lifecycle&&devices&&selected&&!camera.value){stop();status('Selected camera disconnected. Choose another camera.');}}
+  catch(e){if(current===lifecycle)status('Unable to refresh cameras: '+e.message);}
 });
 listCameras().catch(()=>{});
-
 start.onclick=async()=>{
   if(starting||running)return;
   if(!camera.value){status('Choose a camera first.');return;}
-  stop();
-  const current=lifecycle,selected=camera.value;
-  starting=true;updateButtons();
-  let acquired=null;
+  if(!stream)stop();else stopTracking();
+  const current=lifecycle,selected=camera.value;starting=true;automaticRetries=0;updateButtons();
+  let acquired=null,previewPlaying=!!stream;
   try{
-    status('Preparing hand tracking…');
-    await loadTracker(current);
-    if(current!==lifecycle)return;
-    acquired=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:selected},width:{ideal:480},height:{ideal:360},frameRate:{ideal:60,max:60}},audio:false});
-    if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
-    stream=acquired;video.srcObject=stream;await video.play();
-    if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
-    activeSessionId=crypto.randomUUID();gate.start(activeSessionId);running=true;starting=false;lastVideoTime=-1;lastPresented=null;
-    lastMetrics=performance.now();resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
-    canvas.width=video.videoWidth;canvas.height=video.videoHeight;fitStage();
-    stream.getVideoTracks()[0].addEventListener('ended',()=>{if(current===lifecycle){stop();status('Camera disconnected. Choose a camera and start again.');}});
-    status('Camera ready. Keep your whole hand visible in the control area.');
-    send({ready:true,sessionId:activeSessionId,cameraId:selected});
-    updateButtons();metricsTimer=setInterval(reportMetrics,1000);scheduleFrame(current);
+    if(!stream){
+      status('Starting camera preview…');
+      acquired=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:selected},width:{ideal:480},height:{ideal:360},frameRate:{ideal:60,max:60}},audio:false});
+      if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
+      stream=acquired;previewCameraId=selected;video.srcObject=stream;await video.play();
+      if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
+      previewPlaying=true;
+      canvas.width=video.videoWidth;canvas.height=video.videoHeight;fitStage();
+      stream.getVideoTracks()[0].addEventListener('ended',()=>{if(current===lifecycle){stop();status('Camera disconnected. Choose a camera and start again.');}});
+    }
+    status('Camera preview active. Preparing hand tracking…');
+    await startTracking(current);
   }catch(e){
-    acquired?.getTracks().forEach(t=>t.stop());
-    if(current===lifecycle){stop();status('Unable to start camera: '+e.message);}
+    if(current===lifecycle){
+      if(stream&&previewPlaying)trackingPaused(e.message);
+      else{if(!stream)acquired?.getTracks().forEach(t=>t.stop());stop();status('Unable to start camera: '+e.message);}
+    }
   }finally{if(current===lifecycle){starting=false;updateButtons();}}
 };
 function stop(){
-  const previous=activeSessionId;
-  lifecycle++;running=false;starting=false;gate.stop();
-  if(callbackId!==null){if(callbackKind==='video')video.cancelVideoFrameCallback(callbackId);else cancelAnimationFrame(callbackId);}
-  callbackId=null;clearInterval(metricsTimer);metricsTimer=null;clearTimeout(frameTimeout);frameTimeout=null;clearOverlay();
-  cancelLoad?.();cancelLoad=null;worker?.terminate();worker=null;
-  stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;activeSessionId='';
-  calibration.hidden=true;send({ready:false,sessionId:previous});updateButtons();
+  lifecycle++;starting=false;stopTracking();
+  stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;previewCameraId='';
+  calibration.hidden=true;performanceText.textContent='Tracking diagnostics appear here when the camera starts.';updateButtons();
 }
+stopPreview.onclick=()=>{stop();status('Camera preview stopped.');};
 function scheduleFrame(current){
   if(!running||current!==lifecycle)return;
   if(typeof video.requestVideoFrameCallback==='function'){
@@ -202,38 +228,25 @@ function scheduleFrame(current){
 }
 function onFrame(current,metadata){
   if(!running||current!==lifecycle)return;
-  scheduleFrame(current);
-  if(video.readyState<2)return;
-  if(metadata){
-    const presented=metadata.presentedFrames;
-    cameraFrames+=lastPresented===null?1:Math.max(0,presented-lastPresented);lastPresented=presented;
-  }else{
-    if(video.currentTime===lastVideoTime)return;
-    cameraFrames++;
-  }
+  scheduleFrame(current);if(video.readyState<2)return;
+  if(metadata){const presented=metadata.presentedFrames;cameraFrames+=lastPresented===null?1:Math.max(0,presented-lastPresented);lastPresented=presented;}
+  else{if(video.currentTime===lastVideoTime)return;cameraFrames++;}
   lastVideoTime=video.currentTime;
   const token=gate.begin(performance.now());
   if(token){
-    // A missing worker response (or stuck snapshot) must not leave the camera
-    // running with a permanently occupied inference slot.
-    frameTimeout=setTimeout(()=>{
-      if(current===lifecycle&&gate.isCurrent(token)){
-        stop();status('Tracking stopped responding. Start preview to retry.');
-      }
-    },1000);
+    // GPU graph/shader warmup can be much slower than steady-state inference.
+    // Even during warmup the native freshness gate blocks stale cursor input.
+    frameTimeout=setTimeout(()=>{if(current===lifecycle&&gate.isCurrent(token))void recoverTracking(current,'Tracking stopped responding.');},hasTrackerResult?3000:10000);
     capture(token,current,worker);
   }
 }
 async function capture(token,current,active){
   let bitmap;
   try{
-    // Timestamp before snapshot creation. Drop new camera frames while one is
-    // running; never queue old hand positions.
     bitmap=await createImageBitmap(video,{resizeWidth:480,resizeHeight:Math.max(1,Math.round(480*video.videoHeight/video.videoWidth))});
     if(current!==lifecycle||active!==worker||!gate.isCurrent(token)){bitmap.close();return;}
-    active.postMessage({type:'frame',sessionId:token.sessionId,sequence:token.sequence,timestamp:token.timestamp,bitmap},[bitmap]);
-    bitmap=null;
-  }catch(e){bitmap?.close();if(current===lifecycle){stop();status('Tracking stopped: '+e.message+'. Start preview to retry.');}}
+    active.postMessage({type:'frame',sessionId:token.sessionId,sequence:token.sequence,timestamp:token.timestamp,bitmap},[bitmap]);bitmap=null;
+  }catch(e){bitmap?.close();if(current===lifecycle&&active===worker&&gate.isCurrent(token))void recoverTracking(current,e.message);}
 }
 window.addEventListener('pagehide',stop);
 </script>
