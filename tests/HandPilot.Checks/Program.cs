@@ -1,6 +1,7 @@
 using HandPilot;
 
 MovementChecks.Run();
+RestingChecks.Run();
 
 public static class MovementChecks
 {

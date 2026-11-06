@@ -40,7 +40,7 @@ Completed pass/fail results save locally under `%LOCALAPPDATA%/HandPilot/Movemen
 - Camera capture requests 480x360 at up to 60 FPS when supported. Actual dimensions, camera FPS, tracking FPS, inference time, and processing age remain visible beneath the fitted preview.
 - Camera-frame callbacks are used when available, with an animation-frame fallback. GPU initialization falls back to CPU if unavailable.
 - Every result carries a session ID, sequence, and capture timestamp. Browser and native layers reject results older than 120 ms. Native input runs on a background timer and rechecks freshness at output; a 150 ms stream timeout holds control and releases pending input. Camera preview stays independent of tracking: the first inference has a 10-second warmup budget, later inferences have a 3-second watchdog, and a stalled/failed tracker gets one CPU recovery attempt. Further failure leaves the preview running with **Retry tracking**, without reopening the camera. Movement must be started again after a tracking-session restart.
-- Always-on pixel-aware adaptive filtering suppresses small tremors and follows deliberate travel more quickly. Exact corner snapping avoids endlessly approaching an edge.
+- Always-on stabilization parks the cursor when the tracked hand settles. A separate raw-position anchor holds small resting twitches without drifting after them. Clear travel releases immediately; consistent slow movement or a small new position held steadily releases the hold for fine adjustments. Thresholds scale with desktop size, and exact corner snapping remains available. Input history is cleared after hand loss so an old resting position cannot trap recovery.
 - Hand reacquisition requires at least three samples spanning 100 ms. A bounded 120 ms blend then returns from the previous cursor position to the absolute mapped target. Lost tracking never extrapolates movement.
 - One-pose setup estimates a symmetric palm workspace from your neutral position, visible hand size, and available camera room, then maps it to the full Windows virtual desktop. This is an estimate, so use the live corner check to validate reach. Profiles are stored atomically per camera and display arrangement; corrupt or incompatible profiles require setup again.
 
@@ -56,7 +56,7 @@ node tests/web-tracking-checks.cjs
 dotnet build src/HandPilot -c Release
 ```
 
-The .NET checks cover mapping, jitter, 30/60 FPS response, bounded recovery, invalid/stale frames, calibration, profile persistence, input cancellation, and live-check criteria. Node checks cover freshness, overlay expiry, session cancellation, single-flight processing, worker watchdog, explicit camera selection, telemetry, and GPU fallback. These are deterministic tests; physical webcam acceptance remains necessary on each device.
+The .NET checks cover mapping, resting jitter and brief twitches, slow precision travel, 20/30/60 FPS response across multiple desktop sizes, bounded recovery, invalid/stale frames, calibration, profile persistence, input cancellation, and live-check criteria. Node checks cover freshness, overlay expiry, session cancellation, single-flight processing, worker watchdog, explicit camera selection, telemetry, and GPU fallback. These are deterministic tests; physical webcam acceptance remains necessary on each device.
 
 ## Local data and limits
 
