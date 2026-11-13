@@ -4,7 +4,7 @@ using HandPilot;
 public static class TrackpadChecks
 {
     private static int assertions;
-    private const double Fps = 30;
+    private static double Fps = 30;
     private static void Check(bool ok, string message)
     {
         assertions++;
@@ -193,6 +193,29 @@ public static class TrackpadChecks
             Check(Math.Abs(near - far) / Math.Max(near, far) < .2, $"Equal hand-sized motions should move similar distances near ({near:0}px) and far ({far:0}px)");
             Console.WriteLine($"Trackpad metrics: 3% glide slow {slow:0}px vs fast {fast:0}px; same hand-relative motion near {near:0}px vs far {far:0}px.");
         }
+
+        // 9. Built-in laptop cameras often deliver hand results at 7–15 FPS. Movement and clicks must still work.
+        foreach (double fps in new[] { 7.0, 8.0, 10.0, 12.0, 15.0, 60.0 })
+        {
+            Fps = fps;
+            var (engine, mouse) = Create();
+            double time = Hold(engine, 1, .5, .4);
+            var before = engine.PointerPosition!.Value;
+            time = Glide(engine, time, .5, .56, 1);
+            time = Hold(engine, time, .56, .4);
+            double slowMove = Pixels(engine.PointerPosition!.Value, before);
+            Check(slowMove >= 30, $"A slow 6% glide must move the cursor at {fps} FPS; moved {slowMove:0}px");
+            before = engine.PointerPosition!.Value;
+            time = Glide(engine, time, .56, .4, .3);
+            time = Hold(engine, time, .4, .4);
+            double fastMove = Pixels(engine.PointerPosition!.Value, before);
+            Check(fastMove > slowMove && engine.PointerPosition!.Value.X < before.X, $"A fast leftward sweep must travel farther at {fps} FPS; moved {fastMove:0}px");
+            var resting = engine.PointerPosition!.Value;
+            time = Hold(engine, time, .4, .4, pinch: true);
+            time = Hold(engine, time, .4, .4);
+            Check(mouse.Downs == 1 && mouse.Ups == 1 && Pixels(engine.PointerPosition!.Value, resting) < 1, $"Pinch click must work in place at {fps} FPS");
+        }
+        Fps = 30;
 
         Console.WriteLine($"Passed trackpad checks ({assertions} assertions): resting jitter, precision vs acceleration, edge clamp, clutch, pinch click/rollback/drag, and input-release safety.");
     }

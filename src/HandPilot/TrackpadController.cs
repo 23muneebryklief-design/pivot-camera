@@ -111,7 +111,9 @@ public sealed class TrackpadController(IMouseOutput mouse, Func<HandPoint?>? rea
         handScale = handScale <= 0 ? scale : handScale + .15 * (scale - handScale);
         var filtered = new HandPoint(filterX.Filter(raw.X, seconds), filterY.Filter(raw.Y, seconds));
         trail.Add((seconds, filtered));
-        trail.RemoveAll(s => s.Time < seconds - SpeedWindowSeconds - 1e-6);
+        // Keep the newest sample at or before the window start, so speed is still measurable when
+        // frames arrive further apart than the window (slow laptop cameras run hand tracking at ~8 FPS).
+        while (trail.Count > 2 && trail[1].Time <= seconds - SpeedWindowSeconds + 1e-6) trail.RemoveAt(0);
         try { Step(filtered, pinch, folded, seconds, width, height); }
         finally
         {
