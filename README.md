@@ -31,7 +31,7 @@ dotnet run --project src/HandPilot -c Release
 3. Show your relaxed open hand where it feels comfortable for about a second. A progress bar fills and setup saves automatically. No corner poses, capture clicks, or second hand are needed. Small natural tremors and brief missed detections are tolerated; if your hand is too close to an image edge or fills the camera, the app gives a specific repositioning hint.
 4. The estimated reach saves for that camera and display arrangement. Existing saved profiles still work; Quick setup can replace one. Setup is required only when this camera/display has no valid saved profile. You still choose **Start movement** afterward.
 5. Show your hand steadily and choose **Start movement**. Stabilization is automatic. Finger folding does not activate clicks, scrolling, or movement-blocking gestures in this build.
-6. **Ctrl + Alt + Space** always pauses. Control resumes automatically after a brief hand-tracking loss, but an explicit pause requires **Start movement** again. Closing the app stops the camera and input.
+6. **Ctrl + Alt + Space** always pauses. If another app already owns that shortcut, HandPilot falls back to **Ctrl + Alt + P** (then Ctrl + Shift + Alt + Space); the active keys are shown at the bottom of the sidebar. Control resumes automatically after a brief hand-tracking loss, but an explicit pause requires **Start movement** again. Closing the app stops the camera and input.
 
 ## Repeatable live movement check
 

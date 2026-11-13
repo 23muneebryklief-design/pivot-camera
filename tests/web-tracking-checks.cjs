@@ -41,7 +41,7 @@ function pageHarness(FrameGate,{rvfc=true,mediaPromise=null,playError=null}={}) 
   const sent=[],workers=[],callbacks=new Map(),timeouts=new Map(),intervals=new Map(),hostListeners={},deviceListeners={},trackListeners={};
   let now=0,nextId=0,session=0,captureOverride=null,enumerationOverride=null,permissionCalls=[];
   let devices=[{kind:'videoinput',deviceId:'built-in',label:'Built-in webcam'}];
-  const drawing={clears:0,dots:0},ctx={clearRect(){drawing.clears++},beginPath(){},arc(){drawing.dots++},fill(){}};
+  const drawing={clears:0,dots:0},ctx={clearRect(){drawing.clears++},beginPath(){},arc(){drawing.dots++},fill(){},moveTo(){},lineTo(){},stroke(){}};
   function element(){return {value:'',textContent:'',style:{},hidden:false,disabled:false,title:'',addEventListener(){},clientWidth:600,clientHeight:300};}
   const elements={};
   for(const id of ['start','stop-preview','video','canvas','message','camera','refresh','performance','viewport','stage','zone','calibration'])elements[id]=element();

@@ -1,1 +1,18 @@
-<Application x:Class="HandPilot.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml" />
+<Application x:Class="HandPilot.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml">
+ <Application.Resources>
+  <!-- Design tokens shared by the main window. Keep in sync with Web/index.html :root. -->
+  <SolidColorBrush x:Key="Bg" Color="#0E1014"/>
+  <SolidColorBrush x:Key="Surface" Color="#161920"/>
+  <SolidColorBrush x:Key="SurfaceRaised" Color="#1E222B"/>
+  <SolidColorBrush x:Key="SurfaceHover" Color="#272C37"/>
+  <SolidColorBrush x:Key="Border" Color="#262B36"/>
+  <SolidColorBrush x:Key="Text" Color="#ECEEF3"/>
+  <SolidColorBrush x:Key="Muted" Color="#8D96A8"/>
+  <SolidColorBrush x:Key="Accent" Color="#4F7FFF"/>
+  <SolidColorBrush x:Key="AccentHover" Color="#6A93FF"/>
+  <SolidColorBrush x:Key="Success" Color="#34D399"/>
+  <SolidColorBrush x:Key="Warning" Color="#FBBF24"/>
+  <SolidColorBrush x:Key="Danger" Color="#F87171"/>
+  <SolidColorBrush x:Key="Idle" Color="#6B7280"/>
+ </Application.Resources>
+</Application>

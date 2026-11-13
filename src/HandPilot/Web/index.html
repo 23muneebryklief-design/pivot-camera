@@ -4,43 +4,68 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HandPilot camera</title>
 <style>
-  :root{color-scheme:dark;font:13px "Segoe UI",system-ui,sans-serif;color:#eaf1fa;background:#101722}
-  *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}
-  main{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:8px;padding:12px}
+  /* Tokens mirror App.xaml so the embedded page and the native window read as one surface. */
+  :root{--surface:#161920;--raised:#1e222b;--hover:#272c37;--border:#262b36;--text:#eceef3;--muted:#8d96a8;
+    --accent:#4f7fff;--accent-hover:#6a93ff;--success:#34d399;--radius:10px;
+    color-scheme:dark;font:13px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:var(--text);background:var(--surface)}
+  *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--surface)}
+  main{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;padding:0 18px 16px}
   .toolbar{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
-  label{font-size:12px;color:#abb9cc}select{flex:1 1 190px;min-width:120px;max-width:100%;text-overflow:ellipsis}
-  button,select{font:inherit;min-height:34px;border:1px solid #34465e;border-radius:7px;padding:6px 10px;color:#eaf1fa;background:#1c293c}
-  button{cursor:pointer;white-space:nowrap}button:hover:not(:disabled){background:#283c54}button:focus-visible,select:focus-visible{outline:2px solid #76e3c7;outline-offset:2px}
-  #start{color:#10231f;background:#76e3c7;border-color:#76e3c7;font-weight:600}#start:hover:not(:disabled){background:#a2efdc}
-  button:disabled{opacity:.48;cursor:default}
-  #viewport{min-width:0;min-height:0;display:grid;place-items:center;overflow:hidden;border:1px solid #25344a;border-radius:10px;background:#0b111b}
-  #stage{position:relative;overflow:hidden;max-width:100%;max-height:100%;width:100%;aspect-ratio:4/3;background:#0b111b}
+  .toolbar .spacer{flex:1 1 0}
+  label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  select{flex:0 1 300px;min-width:160px;max-width:100%;text-overflow:ellipsis;appearance:none;padding-right:30px;
+    background:var(--raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238d96a8' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 12px center}
+  button,select{font:inherit;font-weight:600;min-height:36px;border:1px solid var(--border);border-radius:8px;padding:7px 14px;color:var(--text);background-color:var(--raised);transition:background-color .12s,border-color .12s}
+  select{font-weight:400}
+  button{cursor:pointer;white-space:nowrap}
+  button:hover:not(:disabled),select:hover:not(:disabled){background-color:var(--hover)}
+  button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  #refresh{background:transparent;border-color:transparent;color:var(--muted)}#refresh:hover:not(:disabled){color:var(--text);background:var(--raised)}
+  #start{color:#fff;background:var(--accent);border-color:var(--accent)}#start:hover:not(:disabled){background:var(--accent-hover)}
+  button:disabled,select:disabled{opacity:.4;cursor:default}
+  #viewport{min-width:0;min-height:0;display:grid;place-items:center;overflow:hidden;border-radius:var(--radius);background:#0b0d11;border:1px solid var(--border)}
+  #stage{position:relative;overflow:hidden;max-width:100%;max-height:100%;width:100%;aspect-ratio:4/3;background:#0b0d11;border-radius:8px}
   video,canvas{display:block;width:100%;height:100%;position:absolute;inset:0;transform:scaleX(-1)}video{object-fit:contain}canvas{pointer-events:none}
-  #zone{position:absolute;left:30%;top:32%;width:40%;height:40%;border:1px dashed #8ee4d0;pointer-events:none}
-  #zone span{position:absolute;top:0;left:0;padding:3px 6px;font-size:10px;white-space:nowrap;background:#101722bd;color:#b9f5e6;border-radius:0 0 5px 0}
-  #calibration{position:absolute;left:8px;right:8px;bottom:8px;margin:0;padding:9px 12px;text-align:center;background:#0d1729e8;border:1px solid #76e3c7;border-radius:7px;font-size:13px;color:#f2fffb;pointer-events:none}
+  #empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:10px;text-align:center;color:var(--muted);padding:24px}
+  #empty[hidden]{display:none}
+  #empty .icon{width:52px;height:52px;border-radius:14px;background:var(--raised);border:1px solid var(--border);display:grid;place-items:center}
+  #empty strong{color:var(--text);font-size:15px;font-weight:600}
+  #empty span{max-width:320px;line-height:1.5}
+  #zone{position:absolute;left:30%;top:32%;width:40%;height:40%;border:1.5px dashed rgba(106,147,255,.8);border-radius:8px;pointer-events:none}
+  #zone[hidden]{display:none}
+  #zone span{position:absolute;top:6px;left:6px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap;background:rgba(14,16,20,.75);color:#c9d6ff;border-radius:6px}
+  #calibration{position:absolute;left:12px;right:12px;bottom:12px;margin:0;padding:10px 14px;text-align:center;background:rgba(14,16,20,.85);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);pointer-events:none}
   #calibration[hidden]{display:none}
-  #message{min-height:16px;max-height:34px;overflow:hidden;margin:0;color:#bdc9d9;font-size:12px;line-height:17px}
-  #performance{margin:0;font-size:11px;line-height:15px;color:#8fa4bf;font-variant-numeric:tabular-nums;white-space:normal}
-  @media(max-width:520px){main{padding:8px;gap:6px}.toolbar{gap:6px}label{display:none}select{flex-basis:140px}button,select{min-height:30px;padding:5px 8px;font-size:12px}}
+  .statusbar{display:flex;gap:12px;align-items:center;justify-content:space-between;min-width:0}
+  #message{flex:1 1 auto;min-width:0;margin:0;color:var(--muted);font-size:12px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #performance{flex:0 1 auto;min-width:0;margin:0;font:11px/15px "Cascadia Mono",Consolas,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:620px){.statusbar{flex-direction:column;align-items:flex-start;gap:4px}#performance{max-width:100%}}
 </style>
 <main>
   <div class="toolbar">
     <label for="camera">Camera</label>
     <select id="camera" aria-label="Camera"><option value="">Choose a camera</option></select>
-    <button id="refresh">Find cameras</button>
+    <button id="refresh" title="Ask Windows for camera access and refresh the list">Find cameras</button>
+    <span class="spacer"></span>
     <button id="start" disabled>Start preview</button><button id="stop-preview" hidden>Stop preview</button>
   </div>
   <div id="viewport">
     <div id="stage">
       <video id="video" autoplay playsinline muted aria-label="Mirrored camera preview"></video>
       <canvas id="canvas" aria-hidden="true"></canvas>
-      <div id="zone"><span>Control area</span></div>
+      <div id="empty">
+        <div class="icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8d96a8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.55-2.28A1 1 0 0121 8.62v6.76a1 1 0 01-1.45.9L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg></div>
+        <strong>Camera is off</strong>
+        <span>Choose your camera above, then start the preview. Frames never leave this device.</span>
+      </div>
+      <div id="zone" hidden><span>Control area</span></div>
       <p id="calibration" hidden></p>
     </div>
   </div>
-  <p id="message" role="status">Choose a camera to begin. Use Find cameras if device names are missing.</p>
-  <p id="performance" aria-live="off">Tracking diagnostics appear here when the camera starts.</p>
+  <div class="statusbar">
+    <p id="message" role="status">Choose a camera to begin.</p>
+    <p id="performance" aria-live="off">Diagnostics appear when tracking starts</p>
+  </div>
 </main>
 <script type="module">
 import { FrameGate } from './tracking-policy.js';
@@ -76,9 +101,17 @@ window.chrome.webview.addEventListener('message',({data})=>{
 });
 function status(text){message.textContent=text;message.title=text;send({status:text});}
 function clearOverlay(){clearTimeout(overlayTimer);overlayTimer=null;ctx.clearRect(0,0,canvas.width,canvas.height);}
+// MediaPipe hand topology: thumb, four fingers and the palm outline.
+const BONES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 function drawOverlay(result){
-  clearOverlay();ctx.fillStyle='#76e3c7';
-  for(const p of result.overlayPoints){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,3,0,Math.PI*2);ctx.fill();}
+  clearOverlay();
+  const pts=result.overlayPoints,scale=Math.max(1,canvas.width/480),at=i=>[pts[i].x*canvas.width,pts[i].y*canvas.height];
+  if(pts.length===21){
+    ctx.strokeStyle='rgba(106,147,255,.85)';ctx.lineWidth=2.5*scale;ctx.lineCap='round';
+    for(const [a,b] of BONES){ctx.beginPath();ctx.moveTo(...at(a));ctx.lineTo(...at(b));ctx.stroke();}
+  }
+  ctx.fillStyle='#ffffff';
+  for(const p of pts){ctx.beginPath();ctx.arc(p.x*canvas.width,p.y*canvas.height,3*scale,0,Math.PI*2);ctx.fill();}
   if(result.overlayPoints.length){const current=lifecycle;overlayTimer=setTimeout(()=>{if(current===lifecycle)clearOverlay();},Math.max(0,gate.maxAgeMs-result.processingAgeMs));}
 }
 function reportMetrics(){
@@ -91,7 +124,9 @@ function reportMetrics(){
   performanceText.textContent=`${backend} · ${metrics.fps.toFixed(0)} tracking fps · ${metrics.inferenceMs.toFixed(0)} ms inference · ${metrics.processingAgeMs.toFixed(0)} ms processing · ${metrics.cameraFps.toFixed(0)} camera fps · ${metrics.width} × ${metrics.height}`;
   lastMetrics=now;resultCount=0;inferenceTotal=0;ageTotal=0;cameraFrames=0;
 }
+const empty=document.querySelector('#empty');
 function updateButtons(){
+  if(empty)empty.hidden=!!stream;
   start.disabled=!camera.value||running||starting;start.hidden=running;
   start.textContent=stream?'Retry tracking':'Start preview';
   stopPreview.hidden=!stream&&!starting;stopPreview.textContent=stream?'Stop preview':'Cancel';
@@ -220,7 +255,7 @@ start.onclick=async()=>{
 function stop(){
   lifecycle++;starting=false;stopTracking();
   stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;previewCameraId='';
-  calibration.hidden=true;performanceText.textContent='Tracking diagnostics appear here when the camera starts.';updateButtons();
+  calibration.hidden=true;performanceText.textContent='Diagnostics appear when tracking starts';updateButtons();
 }
 stopPreview.onclick=()=>{stop();status('Camera preview stopped.');};
 function scheduleFrame(current){

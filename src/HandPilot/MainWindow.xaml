@@ -1,40 +1,295 @@
-<Window x:Class="HandPilot.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:wv="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf" Title="HandPilot" Width="1040" Height="800" MinWidth="760" MinHeight="620" Background="#101522" Foreground="#EDF3FF">
+<Window x:Class="HandPilot.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="HandPilot" Width="1180" Height="780" MinWidth="960" MinHeight="640"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource Bg}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
  <Window.Resources>
-  <Style TargetType="Button">
-   <Setter Property="Padding" Value="16,9"/><Setter Property="Margin" Value="0,0,10,0"/><Setter Property="Background" Value="#243248"/><Setter Property="Foreground" Value="#EDF3FF"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/>
-   <Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger></Style.Triggers>
+  <!-- Buttons -->
+  <ControlTemplate x:Key="ButtonChrome" TargetType="Button">
+   <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+           BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+   </Border>
+   <ControlTemplate.Triggers>
+    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value=".82"/></Trigger>
+    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value=".4"/></Trigger>
+    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Accent}"/></Trigger>
+   </ControlTemplate.Triggers>
+  </ControlTemplate>
+  <Style x:Key="SecondaryButton" TargetType="Button">
+   <Setter Property="Template" Value="{StaticResource ButtonChrome}"/>
+   <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Foreground" Value="{StaticResource Text}"/>
+   <Setter Property="Padding" Value="14,9"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+   <Style.Triggers>
+    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource SurfaceHover}"/></Trigger>
+   </Style.Triggers>
+  </Style>
+  <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+   <Setter Property="Background" Value="{StaticResource Accent}"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+   <Setter Property="Foreground" Value="White"/>
+   <Setter Property="Padding" Value="16,11"/>
+   <Setter Property="FontSize" Value="14"/>
+   <Style.Triggers>
+    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource AccentHover}"/></Trigger>
+   </Style.Triggers>
+  </Style>
+  <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="BorderBrush" Value="Transparent"/>
+   <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+   <Setter Property="Padding" Value="10,6"/>
+  </Style>
+
+  <!-- Segmented mode switch -->
+  <Style x:Key="Segment" TargetType="RadioButton">
+   <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="RadioButton">
+      <Border x:Name="Chrome" Background="Transparent" CornerRadius="6" Padding="16,7">
+       <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+       <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource Text}"/></Trigger>
+       <Trigger Property="IsChecked" Value="True">
+        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceHover}"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+       </Trigger>
+       <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value=".45"/></Trigger>
+      </ControlTemplate.Triggers>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+
+  <!-- Slider -->
+  <Style x:Key="SliderFill" TargetType="RepeatButton">
+   <Setter Property="Focusable" Value="False"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton">
+    <Grid Background="Transparent"><Border Height="4" CornerRadius="2" Background="{StaticResource Accent}"/></Grid>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="SliderRest" TargetType="RepeatButton">
+   <Setter Property="Focusable" Value="False"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton">
+    <Grid Background="Transparent"><Border Height="4" CornerRadius="2" Background="{StaticResource Border}"/></Grid>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Slider">
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider">
+    <Track x:Name="PART_Track" Height="24">
+     <Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource SliderFill}"/></Track.DecreaseRepeatButton>
+     <Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Style="{StaticResource SliderRest}"/></Track.IncreaseRepeatButton>
+     <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb">
+      <Ellipse Width="16" Height="16" Fill="White" Stroke="{StaticResource Accent}" StrokeThickness="3"/>
+     </ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+    </Track>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+
+  <!-- Progress -->
+  <Style TargetType="ProgressBar">
+   <Setter Property="Height" Value="6"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar">
+    <Grid>
+     <Border x:Name="PART_Track" CornerRadius="3" Background="{StaticResource Border}"/>
+     <Border x:Name="PART_Indicator" CornerRadius="3" Background="{StaticResource Accent}" HorizontalAlignment="Left"/>
+    </Grid>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+
+  <!-- Layout pieces -->
+  <Style x:Key="Card" TargetType="Border">
+   <Setter Property="Background" Value="{StaticResource Surface}"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
+   <Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="CornerRadius" Value="12"/>
+   <Setter Property="Padding" Value="18"/>
+   <Setter Property="Margin" Value="0,0,0,14"/>
+  </Style>
+  <Style x:Key="Overline" TargetType="TextBlock">
+   <Setter Property="FontSize" Value="11"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+   <Setter Property="Margin" Value="0,0,0,12"/>
+  </Style>
+  <Style x:Key="Keycap" TargetType="Border">
+   <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+   <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
+   <Setter Property="BorderThickness" Value="1,1,1,2"/>
+   <Setter Property="CornerRadius" Value="5"/>
+   <Setter Property="Padding" Value="7,2"/>
+   <Setter Property="Margin" Value="0,0,4,0"/>
+  </Style>
+  <Style x:Key="GestureName" TargetType="TextBlock">
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+  <Style x:Key="GestureAction" TargetType="TextBlock">
+   <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+   <Setter Property="HorizontalAlignment" Value="Right"/>
+   <Setter Property="VerticalAlignment" Value="Center"/>
   </Style>
  </Window.Resources>
- <Grid Margin="20">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <DockPanel Margin="0,0,0,14">
-   <TextBlock DockPanel.Dock="Right" x:Name="ModeBadge" Text="TRACKPAD MODE" Foreground="#70E0C4" FontSize="11" VerticalAlignment="Center"/>
-   <TextBlock Text="HandPilot" FontSize="26" FontWeight="SemiBold"/>
-  </DockPanel>
-  <StackPanel Grid.Row="1">
-   <WrapPanel Margin="0,0,0,10">
-    <Button x:Name="ControlButton" Content="Start movement" Background="#70E0C4" Foreground="#101522" Click="ToggleControl" IsEnabled="False"/>
-    <Button x:Name="CalibrateButton" Content="Quick setup" Click="BeginCalibration" IsEnabled="False"/>
-    <Button x:Name="TrialButton" Content="Check movement" Click="RunMovementTrial" IsEnabled="False"/>
-    <Button x:Name="ModeButton" Content="Switch to Direct mode" Click="ToggleMode" ToolTip="Trackpad: hand pushes the cursor, pinch clicks. Direct: hand position maps to a fixed screen position, no clicking."/>
-    <StackPanel x:Name="SpeedPanel" Orientation="Horizontal" VerticalAlignment="Center">
-     <TextBlock Text="Speed" Foreground="#A6B3CC" VerticalAlignment="Center" Margin="4,0,8,0"/>
-     <Slider x:Name="SpeedSlider" Width="140" Minimum="0.5" Maximum="2" Value="1" SmallChange="0.1" LargeChange="0.25" VerticalAlignment="Center" ValueChanged="SpeedChanged"/>
-     <TextBlock x:Name="SpeedValue" Text="1.0×" Foreground="#A6B3CC" VerticalAlignment="Center" Margin="8,0,0,0" Width="34"/>
+
+ <Grid Margin="24,20,24,22">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+
+  <!-- Header -->
+  <DockPanel Margin="0,0,0,20">
+   <Border DockPanel.Dock="Right" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="9" Padding="3" VerticalAlignment="Center">
+    <StackPanel Orientation="Horizontal">
+     <RadioButton x:Name="TrackpadOption" GroupName="Mode" Style="{StaticResource Segment}" Content="Trackpad" IsChecked="True" Checked="ModeChosen"
+                  ToolTip="Hand motion pushes the cursor. Pinch to click."/>
+     <RadioButton x:Name="DirectOption" GroupName="Mode" Style="{StaticResource Segment}" Content="Direct" Checked="ModeChosen"
+                  ToolTip="Hand position maps to a fixed screen position. Movement only."/>
     </StackPanel>
-   </WrapPanel>
-   <TextBlock x:Name="TrackingStatus" Text="Starting camera setup…" FontSize="15" FontWeight="SemiBold"/>
-   <TextBlock x:Name="ReachStatus" Text="Choose your camera below and start the preview." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,4,0,0"/>
-   <TextBlock x:Name="ActionMessage" Text="Open hand moves · pinch thumb and index to click · close your hand to reposition." Foreground="#A6B3CC" TextWrapping="Wrap" Margin="0,4,0,12"/>
-  </StackPanel>
-  <Border Grid.Row="2" x:Name="CalibrationPanel" Visibility="Collapsed" Background="#213146" CornerRadius="8" Padding="14" Margin="0,0,0,10">
-   <StackPanel>
-    <TextBlock x:Name="CalibrationPrompt" TextWrapping="Wrap" Margin="0,0,0,10"/>
-    <ProgressBar x:Name="CalibrationProgress" Minimum="0" Maximum="1" Height="8" Foreground="#70E0C4" Background="#101522" BorderThickness="0" Margin="0,0,0,10"/>
-    <DockPanel><Button DockPanel.Dock="Right" Content="Cancel setup" Click="CancelCalibration" Margin="12,0,0,0"/><TextBlock x:Name="CalibrationHint" Text="Saves automatically. Small hand tremors are okay." TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#A6B3CC"/></DockPanel>
+   </Border>
+   <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <Border Width="36" Height="36" CornerRadius="10" Margin="0,0,12,0">
+     <Border.Background>
+      <LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#6E9BFF" Offset="0"/><GradientStop Color="#3D6BEA" Offset="1"/></LinearGradientBrush>
+     </Border.Background>
+     <Grid>
+      <Ellipse Width="14" Height="14" Stroke="White" StrokeThickness="2.5"/>
+      <Ellipse Width="4" Height="4" Fill="White"/>
+     </Grid>
+    </Border>
+    <StackPanel VerticalAlignment="Center">
+     <TextBlock Text="HandPilot" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="20" FontWeight="SemiBold"/>
+     <TextBlock Text="Control your cursor with a webcam" Foreground="{StaticResource Muted}" FontSize="12"/>
+    </StackPanel>
    </StackPanel>
-  </Border>
-  <wv:WebView2 Grid.Row="3" x:Name="CameraView" DefaultBackgroundColor="#192235"/>
-  <TextBlock Grid.Row="4" Text="Ctrl + Alt + Space pauses immediately · Keep your whole hand visible · Tracking stays on this device" Foreground="#A6B3CC" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0"/>
+  </DockPanel>
+
+  <Grid Grid.Row="1">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="340"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+   <!-- Sidebar -->
+   <DockPanel>
+    <Border DockPanel.Dock="Bottom" Padding="2,8,0,0">
+     <StackPanel Orientation="Horizontal">
+      <ItemsControl x:Name="PauseKeys">
+       <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+       <ItemsControl.ItemTemplate><DataTemplate>
+        <Border Style="{StaticResource Keycap}"><TextBlock Text="{Binding}" FontSize="11" FontWeight="SemiBold"/></Border>
+       </DataTemplate></ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock x:Name="PauseHint" Text="pauses at any time" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12"/>
+     </StackPanel>
+    </Border>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,2,0">
+     <StackPanel>
+      <!-- Status and primary controls -->
+      <Border Style="{StaticResource Card}">
+       <StackPanel>
+        <TextBlock Text="STATUS" Style="{StaticResource Overline}"/>
+        <StackPanel Orientation="Horizontal">
+         <Grid Width="12" Height="12" Margin="0,0,10,0" VerticalAlignment="Center">
+          <Ellipse x:Name="StatusHalo" Fill="{StaticResource Idle}" Opacity=".25"/>
+          <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource Idle}"/>
+         </Grid>
+         <TextBlock x:Name="TrackingStatus" Text="Starting…" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="270"/>
+        </StackPanel>
+        <TextBlock x:Name="ReachStatus" Text="Choose your camera and start the preview." Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="22,4,0,16" LineHeight="18"/>
+        <Button x:Name="ControlButton" Style="{StaticResource PrimaryButton}" Content="Start movement" Click="ToggleControl" IsEnabled="False" HorizontalAlignment="Stretch"/>
+        <Grid Margin="0,10,0,0">
+         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+         <Button x:Name="CalibrateButton" Style="{StaticResource SecondaryButton}" Content="Quick setup" Click="BeginCalibration" IsEnabled="False"/>
+         <Button x:Name="TrialButton" Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Check movement" Click="RunMovementTrial" IsEnabled="False"/>
+        </Grid>
+        <Border Background="{StaticResource SurfaceRaised}" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
+         <TextBlock x:Name="ActionMessage" Text="" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" LineHeight="17"/>
+        </Border>
+       </StackPanel>
+      </Border>
+
+      <!-- Speed (trackpad) -->
+      <Border x:Name="SpeedPanel" Style="{StaticResource Card}">
+       <StackPanel>
+        <DockPanel Margin="0,0,0,8">
+         <TextBlock x:Name="SpeedValue" DockPanel.Dock="Right" Text="1.0×" FontWeight="SemiBold"/>
+         <TextBlock Text="POINTER SPEED" Style="{StaticResource Overline}" Margin="0"/>
+        </DockPanel>
+        <Slider x:Name="SpeedSlider" Minimum="0.5" Maximum="2" Value="1" SmallChange="0.1" LargeChange="0.25" ValueChanged="SpeedChanged"/>
+        <DockPanel Margin="0,2,0,0">
+         <TextBlock DockPanel.Dock="Right" Text="Faster" Foreground="{StaticResource Muted}" FontSize="11"/>
+         <TextBlock Text="Precise" Foreground="{StaticResource Muted}" FontSize="11"/>
+        </DockPanel>
+       </StackPanel>
+      </Border>
+
+      <!-- Gesture guide (trackpad) -->
+      <Border x:Name="GesturePanel" Style="{StaticResource Card}">
+       <StackPanel>
+        <TextBlock Text="GESTURES" Style="{StaticResource Overline}"/>
+        <Grid>
+         <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+         <TextBlock Text="Open hand" Style="{StaticResource GestureName}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Column="1" Text="Move cursor" Style="{StaticResource GestureAction}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Row="1" Text="Pinch thumb + index" Style="{StaticResource GestureName}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Row="1" Grid.Column="1" Text="Click" Style="{StaticResource GestureAction}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Row="2" Text="Pinch and move" Style="{StaticResource GestureName}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Row="2" Grid.Column="1" Text="Drag" Style="{StaticResource GestureAction}" Margin="0,0,0,10"/>
+         <TextBlock Grid.Row="3" Text="Closed fist" Style="{StaticResource GestureName}"/>
+         <TextBlock Grid.Row="3" Grid.Column="1" Text="Reposition" Style="{StaticResource GestureAction}"/>
+        </Grid>
+       </StackPanel>
+      </Border>
+
+      <!-- Direct mode explainer -->
+      <Border x:Name="DirectPanel" Style="{StaticResource Card}" Visibility="Collapsed">
+       <StackPanel>
+        <TextBlock Text="DIRECT MODE" Style="{StaticResource Overline}"/>
+        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" LineHeight="18"
+                   Text="Your hand position maps to a fixed point on the screen. Run Quick setup once per camera and display layout. Clicking is off in this mode."/>
+       </StackPanel>
+      </Border>
+     </StackPanel>
+    </ScrollViewer>
+   </DockPanel>
+
+   <!-- Camera -->
+   <Border Grid.Column="2" Style="{StaticResource Card}" Padding="0" Margin="0" ClipToBounds="True">
+    <Grid>
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <DockPanel Margin="18,14,18,12">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+       <Ellipse Width="6" Height="6" Fill="{StaticResource Success}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+       <TextBlock Text="Processed on this device" Foreground="{StaticResource Muted}" FontSize="12"/>
+      </StackPanel>
+      <TextBlock Text="Camera" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+     </DockPanel>
+     <Border Grid.Row="1" x:Name="CalibrationPanel" Visibility="Collapsed" Background="{StaticResource SurfaceRaised}" BorderBrush="{StaticResource Border}" BorderThickness="0,1" Padding="18,14">
+      <DockPanel>
+       <Button DockPanel.Dock="Right" Style="{StaticResource SecondaryButton}" Content="Cancel" Click="CancelCalibration" Margin="16,0,0,0" VerticalAlignment="Center"/>
+       <StackPanel>
+        <TextBlock x:Name="CalibrationPrompt" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8"/>
+        <ProgressBar x:Name="CalibrationProgress" Minimum="0" Maximum="1" Margin="0,0,0,8"/>
+        <TextBlock x:Name="CalibrationHint" Text="Saves automatically. Small hand tremors are okay." TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12"/>
+       </StackPanel>
+      </DockPanel>
+     </Border>
+     <wv:WebView2 Grid.Row="2" x:Name="CameraView" DefaultBackgroundColor="#161920" Margin="1,0,1,1"/>
+    </Grid>
+   </Border>
+  </Grid>
  </Grid>
 </Window>

@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -32,6 +33,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) =>
+        {
+            // Dark title bar to match the window (Windows 10 20H1+ / 11). Ignored on older systems.
+            int dark = 1;
+            DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
+        };
         Loaded += Initialize;
         uiTimer.Tick += (_, _) => RefreshState();
         Closed += (_, _) =>
@@ -55,8 +62,7 @@ public partial class MainWindow : Window
             UpdateModeText();
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
             source.AddHook(Hook);
-            if (!RegisterHotKey(source.Handle, 1, 0x4000 | 0x0002 | 0x0001, 0x20))
-                throw new InvalidOperationException("Pause shortcut is already in use. Close the conflicting app and reopen HandPilot.");
+            RegisterPauseShortcut();
             controlTimer = new System.Threading.Timer(_ => movement.Tick(NowMs), null, 0, 8);
             var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HandPilot", "WebView2"));
             if (closing) return;
@@ -148,26 +154,50 @@ public partial class MainWindow : Window
         UpdateModeText();
     }
 
+    /// <summary>Prefer Ctrl+Alt+Space; fall back if another app owns it. Never block startup over a shortcut.</summary>
+    private void RegisterPauseShortcut()
+    {
+        const uint NoRepeat = 0x4000, Control = 0x0002, Alt = 0x0001, Shift = 0x0004;
+        (uint Modifiers, uint Key, string[] Labels)[] candidates =
+        [
+            (Control | Alt, 0x20, ["Ctrl", "Alt", "Space"]),
+            (Control | Alt, 0x50, ["Ctrl", "Alt", "P"]),
+            (Control | Shift | Alt, 0x20, ["Ctrl", "Shift", "Alt", "Space"])
+        ];
+        foreach (var candidate in candidates)
+        {
+            if (!RegisterHotKey(source!.Handle, 1, NoRepeat | candidate.Modifiers, candidate.Key)) continue;
+            PauseKeys.ItemsSource = candidate.Labels;
+            PauseHint.Text = "pauses at any time";
+            return;
+        }
+        PauseKeys.ItemsSource = Array.Empty<string>();
+        PauseHint.Text = "No pause shortcut available. Use Pause movement.";
+    }
+
     private void UpdateModeText()
     {
         bool trackpad = mode == PointerMode.Trackpad;
-        ModeBadge.Text = trackpad ? "TRACKPAD MODE" : "DIRECT MODE";
-        ModeButton.Content = trackpad ? "Switch to Direct mode" : "Switch to Trackpad mode";
-        SpeedPanel.Visibility = trackpad ? Visibility.Visible : Visibility.Collapsed;
+        SpeedPanel.Visibility = GesturePanel.Visibility = trackpad ? Visibility.Visible : Visibility.Collapsed;
+        DirectPanel.Visibility = trackpad ? Visibility.Collapsed : Visibility.Visible;
         CalibrateButton.Visibility = trackpad ? Visibility.Collapsed : Visibility.Visible;
-        ReachStatus.Text = !cameraReady ? "Choose your camera below and start the preview." :
-            trackpad ? "No setup needed. Show your open hand, then Start movement." :
-            calibrated ? "Your saved comfortable reach is ready for this camera and display arrangement." :
-            "Use Quick setup: show your open hand comfortably for about a second.";
+        Grid.SetColumn(TrialButton, trackpad ? 0 : 2);
+        Grid.SetColumnSpan(TrialButton, trackpad ? 3 : 1);
+        ReachStatus.Text = !cameraReady ? "Choose your camera and start the preview." :
+            trackpad ? "Show your open hand, then start movement." :
+            calibrated ? "Saved reach is ready for this camera and display layout." :
+            "Run Quick setup: hold your open hand still for about a second.";
         ActionMessage.Text = trackpad
-            ? "Open hand moves (slow = precise, fast = far) · pinch thumb and index to click · pinch and move to drag · close your hand to reposition."
-            : "Direct mode · hand position maps to the screen · clicking and scrolling are off.";
+            ? "Hold your hand upright, palm facing the camera, about an arm's length away."
+            : "Hand position maps to the screen. Clicking is off in Direct mode.";
     }
 
-    private void ToggleMode(object sender, RoutedEventArgs e)
+    private void ModeChosen(object sender, RoutedEventArgs e)
     {
-        if (calibration != null) return;
-        mode = mode == PointerMode.Trackpad ? PointerMode.Direct : PointerMode.Trackpad;
+        if (!IsLoaded) return;
+        var chosen = DirectOption.IsChecked == true ? PointerMode.Direct : PointerMode.Trackpad;
+        if (chosen == mode) return;
+        mode = chosen;
         movement.SetMode(mode);
         UpdateModeText(); UpdatePreview(); RefreshState();
     }
@@ -198,7 +228,7 @@ public partial class MainWindow : Window
             AdvanceCalibration(NowMs / 1000);
         }
         var state = movement.Snapshot(NowMs);
-        TrackingStatus.Text = !cameraReady ? "Camera setup" : state.Condition switch
+        TrackingStatus.Text = !cameraReady ? "Camera not started" : state.Condition switch
         {
             TrackingCondition.Tracking when state.Enabled && state.Mode == PointerMode.Trackpad => state.Gesture switch
             {
@@ -215,10 +245,19 @@ public partial class MainWindow : Window
             _ => "Show your hand to the camera"
         };
         if (state.Error != null) ActionMessage.Text = state.Error;
+        string tone = !cameraReady ? "Idle" : state.Condition switch
+        {
+            TrackingCondition.Tracking => state.Enabled ? "Success" : "Accent",
+            TrackingCondition.Acquiring or TrackingCondition.Delayed or TrackingCondition.NoHand => "Warning",
+            TrackingCondition.Error => "Danger",
+            _ => "Idle"
+        };
+        var brush = (System.Windows.Media.Brush)FindResource(tone);
+        StatusDot.Fill = StatusHalo.Fill = brush;
         ControlButton.Content = state.Enabled ? "Pause movement" : "Start movement";
         ControlButton.IsEnabled = state.Enabled || cameraReady && ReachReady && calibration == null && state.Condition == TrackingCondition.Tracking;
         CalibrateButton.IsEnabled = cameraReady && calibration == null;
-        ModeButton.IsEnabled = calibration == null;
+        TrackpadOption.IsEnabled = DirectOption.IsEnabled = calibration == null;
         TrialButton.IsEnabled = cameraReady && ReachReady && calibration == null && state.Condition == TrackingCondition.Tracking;
     }
 
@@ -323,4 +362,5 @@ public partial class MainWindow : Window
     }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }
