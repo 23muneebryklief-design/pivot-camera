@@ -65,6 +65,8 @@ function fitStage(){
 new ResizeObserver(fitStage).observe(viewport);
 video.addEventListener('loadedmetadata',fitStage);
 window.chrome.webview.addEventListener('message',({data})=>{
+  // Trackpad mode is relative: there is no fixed camera area that maps to the screen.
+  if(typeof data?.mode==='string')zone.hidden=data.mode==='Trackpad';
   if(data?.bounds){
     const {left,top,right,bottom}=data.bounds;
     if([left,top,right,bottom].every(Number.isFinite)&&left>=0&&top>=0&&right<=1&&bottom<=1&&left<right&&top<bottom)
@@ -118,7 +120,8 @@ function loadTracker(current,forceCpu){
       const result=gate.finish(data,performance.now());if(!result)return;
       clearTimeout(frameTimeout);frameTimeout=null;hasTrackerResult=true;
       send({sessionId:result.sessionId,sequence:result.sequence,capturedAtUnixMs:performance.timeOrigin+result.timestamp,
-        points:result.points,inferenceMs:result.inferenceMs,backend:result.backend});
+        points:result.points,inferenceMs:result.inferenceMs,backend:result.backend,
+        aspect:video.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:0});
       drawOverlay(result);resultCount++;inferenceTotal+=result.inferenceMs;ageTotal+=result.processingAgeMs;
     };
     active.postMessage({type:'init',forceCpu});
@@ -197,7 +200,7 @@ start.onclick=async()=>{
   try{
     if(!stream){
       status('Starting camera preview…');
-      acquired=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:selected},width:{ideal:480},height:{ideal:360},frameRate:{ideal:60,max:60}},audio:false});
+      acquired=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:selected},width:{ideal:640},height:{ideal:480},frameRate:{ideal:60,max:60}},audio:false});
       if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
       stream=acquired;previewCameraId=selected;video.srcObject=stream;await video.play();
       if(current!==lifecycle){acquired.getTracks().forEach(t=>t.stop());return;}
@@ -243,7 +246,7 @@ function onFrame(current,metadata){
 async function capture(token,current,active){
   let bitmap;
   try{
-    bitmap=await createImageBitmap(video,{resizeWidth:480,resizeHeight:Math.max(1,Math.round(480*video.videoHeight/video.videoWidth))});
+    bitmap=await createImageBitmap(video,{resizeWidth:640,resizeHeight:Math.max(1,Math.round(640*video.videoHeight/video.videoWidth))});
     if(current!==lifecycle||active!==worker||!gate.isCurrent(token)){bitmap.close();return;}
     active.postMessage({type:'frame',sessionId:token.sessionId,sequence:token.sequence,timestamp:token.timestamp,bitmap},[bitmap]);bitmap=null;
   }catch(e){bitmap?.close();if(current===lifecycle&&active===worker&&gate.isCurrent(token))void recoverTracking(current,e.message);}

@@ -34,9 +34,10 @@ public interface IMouseOutput
     void DoubleClick();
 }
 
-public sealed class GestureEngine(IMouseOutput mouse)
+public sealed class GestureEngine(IMouseOutput mouse, Func<HandPoint?>? readCursor = null)
 {
     private readonly PointerMotion motion = new();
+    private readonly TrackpadController trackpad = new(mouse, readCursor);
     private bool buttonPressed, doubleClickForPress, dragging, held, armed;
     private HandPoint? pressPalm;
     private double? scrollY, lastSampleTime;
@@ -47,11 +48,17 @@ public sealed class GestureEngine(IMouseOutput mouse)
     public double ScreenWidth { get; set; } = 1920;
     public double ScreenHeight { get; set; } = 1080;
     public HandPoint? PointerPosition { get; private set; }
+    /// <summary>Direct maps the palm to an absolute screen position; Trackpad moves relatively with pinch clicks.</summary>
+    public PointerMode Mode { get; set; } = PointerMode.Direct;
+    public double TrackpadSensitivity { get => trackpad.Sensitivity; set => trackpad.Sensitivity = value; }
+    public double CameraAspect { get => trackpad.CameraAspect; set => trackpad.CameraAspect = value; }
+    public HandGesture Gesture => Mode == PointerMode.Trackpad ? trackpad.Gesture : HandGesture.None;
 
     public void Start(HandPoint? currentPointer = null)
     {
         Reset();
         motion.Reset(currentPointer);
+        trackpad.Start(currentPointer);
         PointerPosition = currentPointer;
     }
 
@@ -60,6 +67,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
         CancelGesture();
         lastSampleTime = null;
         motion.Reset();
+        trackpad.Reset();
         PointerPosition = null;
     }
 
@@ -69,6 +77,7 @@ public sealed class GestureEngine(IMouseOutput mouse)
         CancelGesture();
         lastSampleTime = null;
         motion.Suspend();
+        trackpad.Suspend();
     }
 
     private void CancelGesture()
@@ -105,6 +114,15 @@ public sealed class GestureEngine(IMouseOutput mouse)
         if (lastSampleTime is double previous && sampleTimeSeconds <= previous) return;
         if (lastSampleTime is double last && sampleTimeSeconds - last > .15) LoseTracking();
         lastSampleTime = sampleTimeSeconds;
+
+        if (Mode == PointerMode.Trackpad)
+        {
+            // Trackpad mode owns its pinch click and clutch; the legacy fist gestures stay off.
+            CancelGesture();
+            trackpad.Process(points, sampleTimeSeconds, ScreenWidth, ScreenHeight);
+            PointerPosition = trackpad.Position ?? PointerPosition;
+            return;
+        }
 
         if (MovementOnly)
         {

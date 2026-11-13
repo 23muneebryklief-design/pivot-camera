@@ -3,6 +3,7 @@
  <ItemGroup>
   <Compile Include="../../src/HandPilot/GestureEngine.cs" Link="GestureEngine.cs" />
   <Compile Include="../../src/HandPilot/PointerMotion.cs" Link="PointerMotion.cs" />
+  <Compile Include="../../src/HandPilot/TrackpadController.cs" Link="TrackpadController.cs" />
   <Compile Include="../../src/HandPilot/MovementSession.cs" Link="MovementSession.cs" />
   <Compile Include="../../src/HandPilot/MovementTrial.cs" Link="MovementTrial.cs" />
  </ItemGroup>

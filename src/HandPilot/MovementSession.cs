@@ -3,19 +3,20 @@ namespace HandPilot;
 public enum TrackingCondition { Waiting, NoHand, Acquiring, Tracking, Delayed, Error }
 
 public sealed record TrackingSample(string SessionId, long Sequence, double CapturedAtUnixMs,
-    HandPoint[] Points, double InferenceMs = 0, string Backend = "");
+    HandPoint[] Points, double InferenceMs = 0, string Backend = "", double CameraAspect = 0);
 
 public sealed record MovementSnapshot(TrackingCondition Condition, bool Enabled, HandPoint? Pointer,
     TrackingSample? Sample, double ProcessingAgeMs, string? Error,
-    double LastOutputAgeMs = 0, long OutputCount = 0, long StaleResults = 0);
+    double LastOutputAgeMs = 0, long OutputCount = 0, long StaleResults = 0,
+    PointerMode Mode = PointerMode.Direct, HandGesture Gesture = HandGesture.None);
 
 // The host ticks this on a background timer. The UI only submits the newest result and reads snapshots.
-public sealed class MovementSession(IMouseOutput output) : IDisposable
+public sealed class MovementSession(IMouseOutput output, Func<HandPoint?>? readCursor = null) : IDisposable
 {
     public const double MaximumResultAgeMs = 120;
     public const double TrackingTimeoutMs = 150;
     private readonly object sync = new();
-    private readonly GestureEngine engine = new(output);
+    private readonly GestureEngine engine = new(output, readCursor);
     private string streamId = "";
     private TrackingSample? latest;
     private long receivedSequence = -1, processedSequence = -1;
@@ -74,6 +75,24 @@ public sealed class MovementSession(IMouseOutput output) : IDisposable
             engine.ScreenWidth = screenWidth;
             engine.ScreenHeight = screenHeight;
         }
+    }
+
+    /// <summary>Switching modes always pauses control and releases any held button.</summary>
+    public void SetMode(PointerMode mode)
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            enabled = false;
+            engine.Reset();
+            engine.Mode = mode;
+        }
+    }
+
+    public void SetSensitivity(double sensitivity)
+    {
+        if (!double.IsFinite(sensitivity)) return;
+        lock (sync) engine.TrackpadSensitivity = Math.Clamp(sensitivity, .2, 4);
     }
 
     public bool Enable(HandPoint currentPointer)
@@ -139,6 +158,7 @@ public sealed class MovementSession(IMouseOutput output) : IDisposable
                 previousCapture = latest.CapturedAtUnixMs;
                 if (enabled)
                 {
+                    if (double.IsFinite(latest.CameraAspect) && latest.CameraAspect > 0) engine.CameraAspect = latest.CameraAspect;
                     engine.Process(latest.Points, latest.CapturedAtUnixMs / 1000);
                     lastOutputAgeMs = Math.Max(0, age);
                     outputCount++;
@@ -167,7 +187,7 @@ public sealed class MovementSession(IMouseOutput output) : IDisposable
         lock (sync)
             return new(condition, enabled, engine.PointerPosition, latest,
                 latest == null ? 0 : Math.Max(0, nowUnixMs - latest.CapturedAtUnixMs), error,
-                lastOutputAgeMs, outputCount, staleResults);
+                lastOutputAgeMs, outputCount, staleResults, engine.Mode, engine.Gesture);
     }
 
     public void Dispose()

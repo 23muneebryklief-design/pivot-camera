@@ -2,6 +2,7 @@ using HandPilot;
 
 MovementChecks.Run();
 RestingChecks.Run();
+TrackpadChecks.Run();
 
 public static class MovementChecks
 {

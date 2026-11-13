@@ -10,7 +10,7 @@ namespace HandPilot;
 
 public partial class MainWindow : Window
 {
-    private readonly MovementSession movement = new(new WindowsMouse());
+    private readonly MovementSession movement = new(new WindowsMouse(), ReadCursor);
     private readonly CalibrationProfileStore profiles = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HandPilot", "calibration.json"));
     private readonly DispatcherTimer uiTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private System.Threading.Timer? controlTimer;
@@ -20,6 +20,14 @@ public partial class MainWindow : Window
     private CameraBounds bounds = CameraBounds.Default;
     private bool cameraReady, calibrated, closing;
     private int displayCheckTicks;
+    private PointerMode mode = PointerMode.Trackpad;
+    private bool ReachReady => calibrated || mode == PointerMode.Trackpad;
+
+    private static HandPoint? ReadCursor()
+    {
+        try { return DesktopGeometry.Pointer(); }
+        catch (InvalidOperationException) { return null; }
+    }
 
     public MainWindow()
     {
@@ -42,6 +50,9 @@ public partial class MainWindow : Window
         {
             displayKey = DesktopGeometry.Key();
             movement.Configure(bounds, DesktopGeometry.Width, DesktopGeometry.Height);
+            movement.SetMode(mode);
+            movement.SetSensitivity(SpeedSlider.Value);
+            UpdateModeText();
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
             source.AddHook(Hook);
             if (!RegisterHotKey(source.Handle, 1, 0x4000 | 0x0002 | 0x0001, 0x20))
@@ -109,7 +120,8 @@ public partial class MainWindow : Window
                 root.GetProperty("capturedAtUnixMs").GetDouble(),
                 points.GetArrayLength() == 21 ? points.EnumerateArray().Select(p => new HandPoint(p.GetProperty("x").GetDouble(), p.GetProperty("y").GetDouble())).ToArray() : [],
                 root.TryGetProperty("inferenceMs", out var infer) ? infer.GetDouble() : 0,
-                root.TryGetProperty("backend", out var backend) ? backend.GetString() ?? "" : "");
+                root.TryGetProperty("backend", out var backend) ? backend.GetString() ?? "" : "",
+                root.TryGetProperty("aspect", out var aspect) && aspect.ValueKind == JsonValueKind.Number ? aspect.GetDouble() : 0);
             if (movement.Submit(frame) && calibration != null)
             {
                 double age = NowMs - frame.CapturedAtUnixMs;
@@ -133,8 +145,37 @@ public partial class MainWindow : Window
         calibrated = profiles.TryLoad(cameraId, displayKey, out var saved);
         bounds = calibrated ? saved : CameraBounds.Default;
         movement.Configure(bounds, DesktopGeometry.Width, DesktopGeometry.Height);
-        ReachStatus.Text = calibrated ? "Your saved comfortable reach is ready for this camera and display arrangement." : "Use Quick setup: show your open hand comfortably for about a second.";
-        ActionMessage.Text = "Movement only · clicking and scrolling are paused during this milestone.";
+        UpdateModeText();
+    }
+
+    private void UpdateModeText()
+    {
+        bool trackpad = mode == PointerMode.Trackpad;
+        ModeBadge.Text = trackpad ? "TRACKPAD MODE" : "DIRECT MODE";
+        ModeButton.Content = trackpad ? "Switch to Direct mode" : "Switch to Trackpad mode";
+        SpeedPanel.Visibility = trackpad ? Visibility.Visible : Visibility.Collapsed;
+        CalibrateButton.Visibility = trackpad ? Visibility.Collapsed : Visibility.Visible;
+        ReachStatus.Text = !cameraReady ? "Choose your camera below and start the preview." :
+            trackpad ? "No setup needed. Show your open hand, then Start movement." :
+            calibrated ? "Your saved comfortable reach is ready for this camera and display arrangement." :
+            "Use Quick setup: show your open hand comfortably for about a second.";
+        ActionMessage.Text = trackpad
+            ? "Open hand moves (slow = precise, fast = far) · pinch thumb and index to click · pinch and move to drag · close your hand to reposition."
+            : "Direct mode · hand position maps to the screen · clicking and scrolling are off.";
+    }
+
+    private void ToggleMode(object sender, RoutedEventArgs e)
+    {
+        if (calibration != null) return;
+        mode = mode == PointerMode.Trackpad ? PointerMode.Direct : PointerMode.Trackpad;
+        movement.SetMode(mode);
+        UpdateModeText(); UpdatePreview(); RefreshState();
+    }
+
+    private void SpeedChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (SpeedValue != null) SpeedValue.Text = $"{e.NewValue:0.0}×";
+        movement.SetSensitivity(e.NewValue);
     }
 
     private void RefreshState()
@@ -159,6 +200,13 @@ public partial class MainWindow : Window
         var state = movement.Snapshot(NowMs);
         TrackingStatus.Text = !cameraReady ? "Camera setup" : state.Condition switch
         {
+            TrackingCondition.Tracking when state.Enabled && state.Mode == PointerMode.Trackpad => state.Gesture switch
+            {
+                HandGesture.Clutched => "Hand closed · reposition freely",
+                HandGesture.Pinching => "Pinch · click",
+                HandGesture.Dragging => "Pinch held · dragging",
+                _ => "Trackpad active · pinch to click"
+            },
             TrackingCondition.Tracking => state.Enabled ? "Movement active" : "Hand tracked · ready",
             TrackingCondition.Acquiring => "Finding a steady hand…",
             TrackingCondition.Delayed => "Tracking delayed · cursor held",
@@ -168,9 +216,10 @@ public partial class MainWindow : Window
         };
         if (state.Error != null) ActionMessage.Text = state.Error;
         ControlButton.Content = state.Enabled ? "Pause movement" : "Start movement";
-        ControlButton.IsEnabled = state.Enabled || cameraReady && calibrated && calibration == null && state.Condition == TrackingCondition.Tracking;
+        ControlButton.IsEnabled = state.Enabled || cameraReady && ReachReady && calibration == null && state.Condition == TrackingCondition.Tracking;
         CalibrateButton.IsEnabled = cameraReady && calibration == null;
-        TrialButton.IsEnabled = cameraReady && calibrated && calibration == null && state.Condition == TrackingCondition.Tracking;
+        ModeButton.IsEnabled = calibration == null;
+        TrialButton.IsEnabled = cameraReady && ReachReady && calibration == null && state.Condition == TrackingCondition.Tracking;
     }
 
     private void ToggleControl(object sender, RoutedEventArgs e)
@@ -246,6 +295,7 @@ public partial class MainWindow : Window
     {
         CameraView?.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
         {
+            mode = mode.ToString(),
             bounds = new { left = bounds.Left, top = bounds.Top, right = bounds.Right, bottom = bounds.Bottom },
             calibration = new { active = calibration != null, prompt = calibration == null ? "" : CalibrationHint.Text }
         }));
@@ -253,7 +303,7 @@ public partial class MainWindow : Window
 
     private void RunMovementTrial(object sender, RoutedEventArgs e)
     {
-        if (!calibrated || calibration != null) return;
+        if (!ReachReady || calibration != null) return;
         if (!movement.Snapshot(NowMs).Enabled && !movement.Enable(DesktopGeometry.Pointer())) return;
         var trial = new MovementTrialWindow(movement, cameraId, displayKey) { Owner = this };
         trial.ShowDialog();
